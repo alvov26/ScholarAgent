@@ -1,4 +1,5 @@
 import MarkdownRenderer from "@/components/reader/MarkdownRenderer";
+import { prepareMDX } from "@/lib/mdx";
 
 const MOCK_CONTENT = `
 # Sample Scientific Paper
@@ -15,8 +16,11 @@ interactivity, making it difficult for researchers to quickly grasp the core con
 of a paper.
 
 ## Proposed Method
-Our method involves using **LlamaParse** for high-fidelity document cracking and 
+Our method involves using **LlamaParse** <Badge>v1</Badge> for high-fidelity document cracking and 
 **Graph-RAG** for maintaining a consistent understanding of symbols across sections.
+
+The core objective is to maximize the utility function $U(a, p)$ where $a$ is the agent action and $p$ is the paper context:
+$$U(a, p) = \sum_{i=1}^{n} \text{Relevance}(a_i, p) - \text{Latency}(a_i)$$
 
 ### Key Components:
 1. **Symbol Glossary Agent**: Extracts and defines mathematical symbols.
@@ -27,7 +31,9 @@ Our method involves using **LlamaParse** for high-fidelity document cracking and
 Scholar Agent represents a significant step towards more efficient research workflows.
 `;
 
-export default function Home() {
+export default async function Home() {
+  const code = await prepareMDX(MOCK_CONTENT);
+
   return (
     <main className="min-h-screen bg-slate-50 py-12 px-4">
       <div className="max-w-4xl mx-auto mb-8 text-center">
@@ -39,7 +45,7 @@ export default function Home() {
         </p>
       </div>
       
-      <MarkdownRenderer content={MOCK_CONTENT} />
+      <MarkdownRenderer code={code} />
     </main>
   );
 }

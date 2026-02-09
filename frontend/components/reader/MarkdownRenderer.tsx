@@ -3,8 +3,7 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageSquarePlus, X } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import MDXComponent from './MDXComponent';
 
 interface Tooltip {
   id: string;
@@ -13,16 +12,24 @@ interface Tooltip {
 }
 
 interface MarkdownRendererProps {
-  content: string;
+  code: string;
 }
 
-export default function MarkdownRenderer({ content: initialContent }: MarkdownRendererProps) {
-  const [content, setContent] = useState(initialContent);
+export default function MarkdownRenderer({ code }: MarkdownRendererProps) {
   const [tooltips, setTooltips] = useState<Tooltip[]>([]);
   const [selection, setSelection] = useState<{ text: string; rect: DOMRect | null } | null>(null);
   const [isAddingTooltip, setIsAddingTooltip] = useState(false);
   const [newTooltipDescription, setNewTooltipDescription] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Custom components for MDX
+  const components = {
+    Badge: ({ children }: { children: React.ReactNode }) => (
+      <span className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-bold mx-1">
+        {children}
+      </span>
+    ),
+  };
 
   const handleMouseUp = useCallback(() => {
     const sel = window.getSelection();
@@ -65,9 +72,7 @@ export default function MarkdownRenderer({ content: initialContent }: MarkdownRe
       ref={containerRef}
     >
       <div className="prose prose-slate prose-indigo max-w-none prose-headings:font-bold prose-h1:text-3xl prose-p:text-slate-700 prose-p:leading-relaxed">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-          {content}
-        </ReactMarkdown>
+        <MDXComponent code={code} components={components} />
       </div>
 
       <AnimatePresence>
