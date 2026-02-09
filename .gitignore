@@ -1,5 +1,10 @@
 .idea/
 .venv/
 .jbeval/
-# Local storage and cache
 storage/
+input/
+frontend/.next
+frontend/node_modules
+uv.lock
+.env*
+frontend/package-lock.json
