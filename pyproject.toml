@@ -3,4 +3,10 @@ name = "scholaragent"
 version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "llama-index",
+    "llama-parse",
+    "python-dotenv",
+    "fastapi",
+    "uvicorn"
+]
