@@ -11,5 +11,6 @@ dependencies = [
     "uvicorn",
     "python-multipart",
     "pypandoc",
-    "pypandoc-binary"
+    "pypandoc-binary",
+    "httpx"
 ]

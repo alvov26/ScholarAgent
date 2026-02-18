@@ -13,10 +13,17 @@ class TexParser:
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-    def parse_to_markdown(self, file_path: str) -> str:
+    def parse_to_markdown(self, file_path: str, resource_path: Optional[str] = None, bib_files: Optional[list[str]] = None) -> str:
         if pypandoc:
             try:
-                return pypandoc.convert_file(file_path, "gfm", format="latex")
+                extra_args = []
+                if resource_path:
+                    extra_args.append(f"--resource-path={resource_path}")
+                if bib_files:
+                    extra_args.append("--citeproc")
+                    for bib in bib_files:
+                        extra_args.append(f"--bibliography={bib}")
+                return pypandoc.convert_file(file_path, "gfm", format="latex", extra_args=extra_args)
             except RuntimeError:
                 pass
 
