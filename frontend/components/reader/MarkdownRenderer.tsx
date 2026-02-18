@@ -197,7 +197,7 @@ const AddTooltipPanel = ({ activeTerm, onClose, onSave }: any) => {
       </p>
       <textarea
         autoFocus
-        className="w-full border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all bg-slate-50/50"
+        className="w-full border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all bg-slate-50/50 text-slate-900"
         placeholder="What does this mean? Add a definition or note..."
         rows={4}
         value={description}
@@ -338,7 +338,18 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
     if (selectionMenuRef.current?.contains(e.target as Node)) return;
 
     const sel = window.getSelection();
+    if (!sel || sel.toString().trim().length === 0) {
+      setSelection(null);
+    }
+  }, []);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    if (panelRef.current?.contains(e.target as Node)) return;
+    if (selectionMenuRef.current?.contains(e.target as Node)) return;
+
+    const sel = window.getSelection();
     if (sel && sel.toString().trim().length > 0) {
+      e.preventDefault();
       const range = sel.getRangeAt(0);
       const rect = range.getBoundingClientRect();
       const containerRect = containerRef.current?.getBoundingClientRect();
@@ -353,10 +364,8 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
             width: rect.width,
           }
         });
-        setActiveTerm(null); // Hide viewing panel if selecting new text
+        setActiveTerm(null);
       }
-    } else {
-      setSelection(null);
     }
   }, []);
 
@@ -378,6 +387,7 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
     <div 
       className="relative max-w-4xl mx-auto p-12 bg-white shadow-xl rounded-2xl min-h-[80vh] border border-slate-100" 
       ref={containerRef}
+      onContextMenu={handleContextMenu}
     >
       <MarkdownContent 
         items={items} 
