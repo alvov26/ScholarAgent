@@ -8,7 +8,7 @@
 Must:
 - Automatic tooltips to terms and math symbols, persistent across the document, editable by the user
 	- Symbol Glossary Agent: scan LaTeX blocks to build a "Project Glossary" with context-aware resolution (link back to definition source)
-	- Shoud also be able to enhance / deepen or shorten the tooltip
+	- Should also be able to enhance / deepen or shorten the tooltip
 - Logical Flow Map: Tree-like structure for the agent and the user to navigate the paper
 	- Not just the headers/subheaders, but the actual logical narrative (Motivation → Core Hypothesis → Proof → Validation)
 - Question answering with RAG based on the structure

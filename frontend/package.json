@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:web": "next dev",
-    "dev:backend": "python -m uvicorn backend.app.api.main:app --reload --port 8000 --app-dir ..",
+    "dev:backend": "uv run --project .. python -m uvicorn backend.app.api.main:app --reload --port 8000 --app-dir .. --reload-dir ..",
     "dev:electron": "wait-on http://localhost:3000 && electron .",
     "dev:desktop": "concurrently -k -n backend,frontend,electron -c green,blue,magenta \"npm run dev:backend\" \"npm run dev:web\" \"npm run dev:electron\"",
     "build": "next build",
