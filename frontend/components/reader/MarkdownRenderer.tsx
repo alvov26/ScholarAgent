@@ -56,16 +56,41 @@ const highlightTooltips = (text: string, tooltips: Tooltip[]) => {
             protectedBlocks.push(`[[${match}]]`);
             return `\x00${protectedBlocks.length - 1}\x00`;
           });
+        } else {
+          // Process inside existing tooltip blocks to support compound terms
+          const id = parseInt(parts[i].substring(1, parts[i].length - 1));
+          const block = protectedBlocks[id];
+          if (block.startsWith('[[') && block.endsWith(']]')) {
+            const inner = block.substring(2, block.length - 2);
+            if (inner !== term) {
+              const processedInner = inner.replace(regex, (match) => {
+                protectedBlocks.push(`[[${match}]]`);
+                return `\x00${protectedBlocks.length - 1}\x00`;
+              });
+              if (processedInner !== inner) {
+                protectedBlocks[id] = `[[${processedInner}]]`;
+              }
+            }
+          }
         }
       }
       processed = parts.join('');
     });
   }
 
-  // 3. Restore all protected blocks
-  processed = processed.replace(/\x00(\d+)\x00/g, (_, id) => protectedBlocks[parseInt(id)]);
+  // 3. Restore all protected blocks recursively
+  while (processed.includes('\x00')) {
+    processed = processed.replace(/\x00(\d+)\x00/g, (_, id) => protectedBlocks[parseInt(id)]);
+  }
 
-  return processed.replace(/\[\[([^\]\n]+?)\]\]/g, '<span class="paper-tooltip">$1</span>');
+  // 4. Convert [[...]] to spans, handling nesting from inside out
+  let prev;
+  do {
+    prev = processed;
+    processed = processed.replace(/\[\[([^\[\]\n]+?)\]\]/g, '<span class="paper-tooltip">$1</span>');
+  } while (processed !== prev);
+
+  return processed;
 };
 
 const MemoizedMarkdownItem = React.memo(({ item, index, showPageMarker, components, tooltips }: any) => {
@@ -387,8 +412,8 @@ export default function MarkdownRenderer({ content, items, paperId }: MarkdownRe
       if (className === 'paper-tooltip') {
         return (
           <span
-            className="paper-tooltip px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded-md text-[0.9em] font-medium mx-0.5 cursor-help border-b-2 border-indigo-200 hover:bg-indigo-100 hover:border-indigo-400 transition-all"
-            onMouseEnter={handleTooltipInteraction}
+            className="paper-tooltip px-1 py-0.5 bg-indigo-50 text-indigo-800 rounded-md text-[0.95em] font-medium mx-0.5 cursor-help border-b-2 border-indigo-200 transition-all inline-block align-baseline"
+            onMouseOver={handleTooltipInteraction}
           >
             {children}
           </span>
@@ -475,6 +500,42 @@ export default function MarkdownRenderer({ content, items, paperId }: MarkdownRe
       ref={containerRef}
       onContextMenu={handleContextMenu}
     >
+      <style jsx global>{`
+        .paper-tooltip {
+          position: relative;
+          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+          box-decoration-break: clone;
+          -webkit-box-decoration-break: clone;
+        }
+        
+        /* Nested level 1: darker background, different border */
+        .paper-tooltip .paper-tooltip {
+          background-color: #e0e7ff !important; /* bg-indigo-100 */
+          border-bottom-color: #818cf8 !important; /* border-indigo-400 */
+          border-bottom-width: 2px !important;
+          margin: 0 1px;
+        }
+
+        /* Nested level 2: even darker */
+        .paper-tooltip .paper-tooltip .paper-tooltip {
+          background-color: #c7d2fe !important; /* bg-indigo-200 */
+          border-bottom-color: #4f46e5 !important; /* border-indigo-600 */
+        }
+
+        /* Hover states for nesting */
+        .paper-tooltip:hover {
+          background-color: #e0e7ff; /* bg-indigo-100 */
+          border-bottom-color: #818cf8; /* border-indigo-400 */
+          z-index: 10;
+        }
+
+        .paper-tooltip .paper-tooltip:hover {
+          background-color: #c7d2fe !important; /* bg-indigo-200 */
+          border-bottom-color: #4f46e5 !important; /* border-indigo-600 */
+          z-index: 20;
+        }
+      `}</style>
+
       <MarkdownContent 
         items={items} 
         content={content} 
