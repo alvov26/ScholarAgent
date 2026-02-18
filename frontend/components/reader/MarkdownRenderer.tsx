@@ -1,9 +1,13 @@
 "use client";
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageSquarePlus, X } from 'lucide-react';
-import MDXComponent from './MDXComponent';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import rehypeRaw from 'rehype-raw';
 
 interface Tooltip {
   id: string;
@@ -12,23 +16,33 @@ interface Tooltip {
 }
 
 interface MarkdownRendererProps {
-  code: string;
+  content: string;
 }
 
-export default function MarkdownRenderer({ code }: MarkdownRendererProps) {
+export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
   const [tooltips, setTooltips] = useState<Tooltip[]>([]);
   const [selection, setSelection] = useState<{ text: string; rect: DOMRect | null } | null>(null);
   const [isAddingTooltip, setIsAddingTooltip] = useState(false);
   const [newTooltipDescription, setNewTooltipDescription] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Custom components for MDX
+  // Simple pre-processor to turn [[Term]] into a special span
+  const processedContent = useMemo(() => {
+    return content.replace(/\[\[(.*?)\]\]/g, '<span class="paper-tooltip">$1</span>');
+  }, [content]);
+
+  // Custom components for react-markdown
   const components = {
-    Badge: ({ children }: { children: React.ReactNode }) => (
-      <span className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-bold mx-1">
-        {children}
-      </span>
-    ),
+    span: ({ node, className, children, ...props }: any) => {
+      if (className === 'paper-tooltip') {
+        return (
+          <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs font-bold mx-1 cursor-help border-b-2 border-indigo-300">
+            {children}
+          </span>
+        );
+      }
+      return <span className={className} {...props}>{children}</span>;
+    }
   };
 
   const handleMouseUp = useCallback(() => {
@@ -72,7 +86,13 @@ export default function MarkdownRenderer({ code }: MarkdownRendererProps) {
       ref={containerRef}
     >
       <div className="prose prose-slate prose-indigo max-w-none prose-headings:font-bold prose-h1:text-3xl prose-p:text-slate-700 prose-p:leading-relaxed">
-        <MDXComponent code={code} components={components} />
+        <ReactMarkdown 
+          remarkPlugins={[remarkGfm, remarkMath]} 
+          rehypePlugins={[rehypeRaw, rehypeKatex]}
+          components={components}
+        >
+          {processedContent}
+        </ReactMarkdown>
       </div>
 
       <AnimatePresence>

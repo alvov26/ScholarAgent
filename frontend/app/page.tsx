@@ -1,7 +1,6 @@
 import MarkdownRenderer from "@/components/reader/MarkdownRenderer";
-import { prepareMDX } from "@/lib/mdx";
 
-const MOCK_CONTENT = `
+const MOCK_CONTENT = String.raw`
 # Sample Scientific Paper
 
 ## Abstract
@@ -16,11 +15,13 @@ interactivity, making it difficult for researchers to quickly grasp the core con
 of a paper.
 
 ## Proposed Method
-Our method involves using **LlamaParse** <Badge>v1</Badge> for high-fidelity document cracking and 
-**Graph-RAG** for maintaining a consistent understanding of symbols across sections.
+Our method involves using **[[LlamaParse]]** v1 for high-fidelity document cracking and 
+**[[Graph-RAG]]** for maintaining a consistent understanding of symbols across sections.
 
-The core objective is to maximize the utility function $U(a, p)$ where $a$ is the agent action and $p$ is the paper context:
-$$U(a, p) = \sum_{i=1}^{n} \text{Relevance}(a_i, p) - \text{Latency}(a_i)$$
+The core objective is to maximize the utility function $$U(a, p)$$ where $$a$$ is the agent action and $$p$$ is the paper context:
+$$
+U(a, p) = \sum_{i=1}^{n} 
+$$
 
 ### Key Components:
 1. **Symbol Glossary Agent**: Extracts and defines mathematical symbols.
@@ -32,7 +33,20 @@ Scholar Agent represents a significant step towards more efficient research work
 `;
 
 export default async function Home() {
-  const code = await prepareMDX(MOCK_CONTENT);
+  const paperId = "3b4c26ea2dc911545c7c009b34fe3a1f172037271ad5167b5933851946eae88d";
+  let content = MOCK_CONTENT;
+  
+  try {
+    const res = await fetch(`http://localhost:8000/paper/${paperId}/markdown`, { 
+      cache: 'no-store' 
+    });
+    if (res.ok) {
+      const data = await res.json();
+      content = data.markdown;
+    }
+  } catch (error) {
+    console.error("Failed to fetch paper from backend:", error);
+  }
 
   return (
     <main className="min-h-screen bg-slate-50 py-12 px-4">
@@ -45,7 +59,7 @@ export default async function Home() {
         </p>
       </div>
       
-      <MarkdownRenderer code={code} />
+      <MarkdownRenderer content={content} />
     </main>
   );
 }

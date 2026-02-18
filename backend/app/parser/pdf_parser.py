@@ -1,6 +1,7 @@
 import os
 import hashlib
 import json
+import re
 from typing import List
 from pathlib import Path
 from dotenv import load_dotenv
@@ -28,7 +29,8 @@ class PDFParser:
         return LlamaParse(
             api_key=self.api_key,
             result_type="markdown",
-            verbose=True
+            verbose=True,
+            user_prompt="Output clean markdown. Do not use HTML tags. Represent all mathematical formulas (both inline and block) using LaTeX wrapped in double dollar signs ($$). Do not use single dollar signs."
         )
 
     def _get_file_hash(self, file_path: str) -> str:
@@ -57,6 +59,13 @@ class PDFParser:
             
         print(f"Parsing {file_path} via LlamaParse...")
         documents = self.parser.load_data(file_path)
+        
+        # Post-process: convert single $ to double $$ for consistency if requested
+        # or just to follow the "double dollar" instruction more strictly.
+        for doc in documents:
+            # Replace $...$ with $$...$$ but avoid $$$...$$$
+            new_text = re.sub(r'(?<!\$)\$([^\$]+)\$(?!\$)', r'$$\1$$', doc.text)
+            doc.set_content(new_text)
         
         # Cache the result
         cached_data = [{"text": doc.text, "metadata": doc.metadata} for doc in documents]
