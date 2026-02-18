@@ -4,8 +4,8 @@
   "description": "",
   "main": "electron/main.cjs",
   "scripts": {
-    "dev": "next dev",
-    "dev:web": "next dev",
+    "dev": "next dev --webpack",
+    "dev:web": "next dev --webpack",
     "dev:backend": "uv run --project .. python -m uvicorn backend.app.api.main:app --reload --port 8000 --app-dir .. --reload-dir ..",
     "dev:electron": "wait-on http://localhost:3000 && electron .",
     "dev:desktop": "concurrently -k -n backend,frontend,electron -c green,blue,magenta \"npm run dev:backend\" \"npm run dev:web\" \"npm run dev:electron\"",
@@ -38,6 +38,7 @@
     "@types/node": "^25.2.2",
     "@types/react": "^19.2.13",
     "@types/react-dom": "^19.2.3",
+    "@tailwindcss/postcss": "^4.1.18",
     "autoprefixer": "^10.4.24",
     "concurrently": "^9.2.1",
     "electron": "^34.3.0",
