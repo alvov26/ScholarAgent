@@ -39,19 +39,44 @@ async def get_paper_markdown(paper_id: str):
     cache_file = CACHE_DIR / f"{paper_id}.json"
     
     if not cache_file.exists():
-        # Maybe paper_id is a filename in input/? 
-        # For now we only support cached hashes
         raise HTTPException(status_code=404, detail="Paper not found in cache")
     
     with open(cache_file, "r") as f:
-        cached_data = json.load(f)
+        json_data = json.load(f)
     
-    # Join all pages text with double newlines
-    # LlamaParse usually gives us a list of pages
-    full_markdown = "\n\n".join([doc["text"] for doc in cached_data])
+    # Extract markdown from each page
+    # LlamaParse JSON structure: list of files, each has 'pages'
+    pages = json_data[0].get("pages", [])
+    full_markdown = "\n\n".join([page.get("md", "") for page in pages])
     
     return {
         "paper_id": paper_id, 
         "markdown": full_markdown,
-        "pages_count": len(cached_data)
+        "pages_count": len(pages)
+    }
+
+@app.get("/paper/{paper_id}/content")
+async def get_paper_content(paper_id: str):
+    # Try to find the cached file
+    cache_file = CACHE_DIR / f"{paper_id}.json"
+    
+    if not cache_file.exists():
+        raise HTTPException(status_code=404, detail="Paper not found in cache")
+    
+    with open(cache_file, "r") as f:
+        json_data = json.load(f)
+    
+    # Return the structured items from all pages
+    all_items = []
+    pages = json_data[0].get("pages", [])
+    for page in pages:
+        page_num = page.get("page")
+        for item in page.get("items", []):
+            item["page"] = page_num # Add page reference to each item
+            all_items.append(item)
+            
+    return {
+        "paper_id": paper_id,
+        "items": all_items,
+        "pages_count": len(pages)
     }

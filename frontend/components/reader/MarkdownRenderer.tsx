@@ -16,19 +16,20 @@ interface Tooltip {
 }
 
 interface MarkdownRendererProps {
-  content: string;
+  content?: string;
+  items?: any[];
 }
 
-export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
+export default function MarkdownRenderer({ content, items }: MarkdownRendererProps) {
   const [tooltips, setTooltips] = useState<Tooltip[]>([]);
   const [selection, setSelection] = useState<{ text: string; rect: DOMRect | null } | null>(null);
   const [isAddingTooltip, setIsAddingTooltip] = useState(false);
   const [newTooltipDescription, setNewTooltipDescription] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Simple pre-processor to turn [[Term]] into a special span
+  // Simple pre-processor for when we have a single content string
   const processedContent = useMemo(() => {
-    return content.replace(/\[\[(.*?)\]\]/g, '<span class="paper-tooltip">$1</span>');
+    return content?.replace(/\[\[([^\]\n]+?)\]\]/g, '<span class="paper-tooltip">$1</span>') || '';
   }, [content]);
 
   // Custom components for react-markdown
@@ -36,13 +37,42 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
     span: ({ node, className, children, ...props }: any) => {
       if (className === 'paper-tooltip') {
         return (
-          <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs font-bold mx-1 cursor-help border-b-2 border-indigo-300">
+          <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs font-bold mx-1 cursor-help border-b-2 border-indigo-300 shadow-sm hover:bg-indigo-200 transition-colors">
             {children}
           </span>
         );
       }
       return <span className={className} {...props}>{children}</span>;
     }
+  };
+
+  const renderItem = (item: any, index: number) => {
+    // Show page marker if it's the first item of a page (except first page)
+    const showPageMarker = index > 0 && items && items[index - 1].page !== item.page;
+    
+    // Process tooltips in the markdown - using a slightly more robust regex
+    const processedMd = item.md?.replace(/\[\[([^\]\n]+?)\]\]/g, '<span class="paper-tooltip">$1</span>') || '';
+    
+    return (
+      <React.Fragment key={index}>
+        {showPageMarker && (
+          <div className="flex items-center gap-4 my-12 opacity-30 select-none">
+            <div className="h-px flex-1 bg-slate-300" />
+            <span className="text-[10px] font-bold tracking-[0.3em] uppercase text-slate-400">Page {item.page}</span>
+            <div className="h-px flex-1 bg-slate-300" />
+          </div>
+        )}
+        <div className={item.type === 'table' ? 'my-8 overflow-x-auto' : ''}>
+          <ReactMarkdown 
+            remarkPlugins={[remarkGfm, remarkMath]} 
+            rehypePlugins={[rehypeRaw, rehypeKatex]}
+            components={components}
+          >
+            {processedMd}
+          </ReactMarkdown>
+        </div>
+      </React.Fragment>
+    );
   };
 
   const handleMouseUp = useCallback(() => {
@@ -86,13 +116,17 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
       ref={containerRef}
     >
       <div className="prose prose-slate prose-indigo max-w-none prose-headings:font-bold prose-h1:text-3xl prose-p:text-slate-700 prose-p:leading-relaxed">
-        <ReactMarkdown 
-          remarkPlugins={[remarkGfm, remarkMath]} 
-          rehypePlugins={[rehypeRaw, rehypeKatex]}
-          components={components}
-        >
-          {processedContent}
-        </ReactMarkdown>
+        {items ? (
+          items.map((item, idx) => renderItem(item, idx))
+        ) : (
+          <ReactMarkdown 
+            remarkPlugins={[remarkGfm, remarkMath]} 
+            rehypePlugins={[rehypeRaw, rehypeKatex]}
+            components={components}
+          >
+            {processedContent}
+          </ReactMarkdown>
+        )}
       </div>
 
       <AnimatePresence>

@@ -18,7 +18,7 @@ of a paper.
 Our method involves using **[[LlamaParse]]** v1 for high-fidelity document cracking and 
 **[[Graph-RAG]]** for maintaining a consistent understanding of symbols across sections.
 
-The core objective is to maximize the utility function $$U(a, p)$$ where $$a$$ is the agent action and $$p$$ is the paper context:
+The core objective is to maximize the utility function $U(a, p)$ where $a$ is the agent action and $p$ is the paper context:
 $$
 U(a, p) = \sum_{i=1}^{n} 
 $$
@@ -35,14 +35,15 @@ Scholar Agent represents a significant step towards more efficient research work
 export default async function Home() {
   const paperId = "3b4c26ea2dc911545c7c009b34fe3a1f172037271ad5167b5933851946eae88d";
   let content = MOCK_CONTENT;
+  let items = null;
   
   try {
-    const res = await fetch(`http://localhost:8000/paper/${paperId}/markdown`, { 
+    const res = await fetch(`http://localhost:8000/paper/${paperId}/content`, { 
       cache: 'no-store' 
     });
     if (res.ok) {
       const data = await res.json();
-      content = data.markdown;
+      items = data.items;
     }
   } catch (error) {
     console.error("Failed to fetch paper from backend:", error);
@@ -59,7 +60,7 @@ export default async function Home() {
         </p>
       </div>
       
-      <MarkdownRenderer content={content} />
+      <MarkdownRenderer content={content} items={items || undefined} />
     </main>
   );
 }

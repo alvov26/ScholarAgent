@@ -28,9 +28,9 @@ class PDFParser:
     def _get_parser(self):
         return LlamaParse(
             api_key=self.api_key,
-            result_type="markdown",
+            result_type="json",
             verbose=True,
-            user_prompt="Output clean markdown. Do not use HTML tags. Represent all mathematical formulas (both inline and block) using LaTeX wrapped in double dollar signs ($$). Do not use single dollar signs."
+            user_prompt="Output clean markdown. Do not use HTML tags. Represent inline mathematical formulas using LaTeX wrapped in single dollar signs ($) and block formulas using double dollar signs ($$). Use the ampersand character (&) for alignment in LaTeX environments, do not escape it as an HTML entity."
         )
 
     def _get_file_hash(self, file_path: str) -> str:
@@ -40,15 +40,14 @@ class PDFParser:
                 sha256_hash.update(byte_block)
         return sha256_hash.hexdigest()
 
-    def parse(self, file_path: str) -> List[Document]:
+    def parse(self, file_path: str) -> List[dict]:
         file_hash = self._get_file_hash(file_path)
         cache_file = self.cache_dir / f"{file_hash}.json"
 
         if cache_file.exists():
             print(f"Loading cached version for {file_path}...")
             with open(cache_file, "r") as f:
-                cached_data = json.load(f)
-                return [Document(text=doc["text"], metadata=doc.get("metadata", {})) for doc in cached_data]
+                return json.load(f)
 
         if not self.parser:
             if not self.api_key:
@@ -57,29 +56,25 @@ class PDFParser:
                     raise ValueError("LLAMA_CLOUD_API_KEY not found in environment")
             self.parser = self._get_parser()
             
-        print(f"Parsing {file_path} via LlamaParse...")
-        documents = self.parser.load_data(file_path)
-        
-        # Post-process: convert single $ to double $$ for consistency if requested
-        # or just to follow the "double dollar" instruction more strictly.
-        for doc in documents:
-            # Replace $...$ with $$...$$ but avoid $$$...$$$
-            new_text = re.sub(r'(?<!\$)\$([^\$]+)\$(?!\$)', r'$$\1$$', doc.text)
-            doc.set_content(new_text)
+        print(f"Parsing {file_path} via LlamaParse (JSON mode)...")
+        json_objs = self.parser.get_json_result(file_path)
         
         # Cache the result
-        cached_data = [{"text": doc.text, "metadata": doc.metadata} for doc in documents]
         with open(cache_file, "w") as f:
-            json.dump(cached_data, f)
+            json.dump(json_objs, f)
         
-        return documents
+        return json_objs
 
 if __name__ == "__main__":
     # Simple test
     import sys
     if len(sys.argv) > 1:
         parser = PDFParser()
-        docs = parser.parse(sys.argv[1])
-        for i, doc in enumerate(docs):
-            print(f"--- Document {i} ---")
-            print(doc.text[:500] + "...")
+        json_data = parser.parse(sys.argv[1])
+        # Print summary
+        pages = json_data[0].get("pages", [])
+        print(f"Total pages: {len(pages)}")
+        for i, page in enumerate(pages[:3]):
+            print(f"--- Page {page['page']} ---")
+            print(f"Items count: {len(page.get('items', []))}")
+            print(page.get("md", "")[:200] + "...")
