@@ -332,7 +332,7 @@ export default function PaperLoader() {
       )}
 
       {content ? (
-        <MarkdownRenderer content={content} items={items || undefined} />
+        <MarkdownRenderer content={content} items={items || undefined} paperId={selectedId} />
       ) : (
         <div className="max-w-3xl mx-auto text-center text-sm text-slate-400">
           Select a file to start reading.

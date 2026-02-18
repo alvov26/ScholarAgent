@@ -10,6 +10,8 @@ import rehypeKatex from 'rehype-katex';
 import rehypeRaw from 'rehype-raw';
 import RenderingErrorBoundary from './RenderingErrorBoundary';
 
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+
 const unescapeHtml = (text: string) => {
   return text
     .replace(/&amp;/g, '&')
@@ -18,9 +20,56 @@ const unescapeHtml = (text: string) => {
     .replace(/&#125;/g, '}');
 };
 
-const MemoizedMarkdownItem = React.memo(({ item, index, showPageMarker, components }: any) => {
-  const unescaped = item.md ? unescapeHtml(item.md) : '';
-  const processedMd = unescaped.replace(/\[\[([^\]\n]+?)\]\]/g, '<span class="paper-tooltip">$1</span>');
+const highlightTooltips = (text: string, tooltips: Tooltip[]) => {
+  if (!text) return '';
+  let processed = unescapeHtml(text);
+  
+  const protectedBlocks: string[] = [];
+  
+  // 1. Protect existing [[...]] markers
+  processed = processed.replace(/\[\[([^\]\n]+?)\]\]/g, (match) => {
+    protectedBlocks.push(match);
+    return `\x00${protectedBlocks.length - 1}\x00`;
+  });
+
+  // 2. Protect math blocks to avoid highlighting terms inside LaTeX
+  processed = processed.replace(/(\$\$[\s\S]+?\$\$|\$[\s\S]+?\$)/g, (match) => {
+    protectedBlocks.push(match);
+    return `\x00${protectedBlocks.length - 1}\x00`;
+  });
+
+  if (tooltips.length > 0) {
+    // Unique terms to avoid double-processing
+    const terms = Array.from(new Set(tooltips.map(t => t.targetText)));
+    const sortedTerms = terms.sort((a, b) => b.length - a.length);
+    
+    sortedTerms.forEach(term => {
+      if (!term.trim()) return;
+      const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const isWord = /^\w+$/.test(term);
+      const regex = new RegExp(isWord ? `\\b${escaped}\\b` : escaped, 'g');
+      
+      const parts = processed.split(/(\x00\d+\x00)/);
+      for (let i = 0; i < parts.length; i++) {
+        if (!parts[i].startsWith('\x00')) {
+          parts[i] = parts[i].replace(regex, (match) => {
+            protectedBlocks.push(`[[${match}]]`);
+            return `\x00${protectedBlocks.length - 1}\x00`;
+          });
+        }
+      }
+      processed = parts.join('');
+    });
+  }
+
+  // 3. Restore all protected blocks
+  processed = processed.replace(/\x00(\d+)\x00/g, (_, id) => protectedBlocks[parseInt(id)]);
+
+  return processed.replace(/\[\[([^\]\n]+?)\]\]/g, '<span class="paper-tooltip">$1</span>');
+};
+
+const MemoizedMarkdownItem = React.memo(({ item, index, showPageMarker, components, tooltips }: any) => {
+  const processedMd = useMemo(() => highlightTooltips(item.md || '', tooltips), [item.md, tooltips]);
 
   return (
     <>
@@ -113,15 +162,12 @@ interface Tooltip {
 interface MarkdownRendererProps {
   content?: string;
   items?: any[];
+  paperId?: string;
 }
 
 // 1. Memoized Markdown Content
-const MarkdownContent = React.memo(({ items, content, components, onMouseUp }: any) => {
-  const processedContent = useMemo(() => {
-    if (!content) return '';
-    const unescaped = unescapeHtml(content);
-    return unescaped.replace(/\[\[([^\]\n]+?)\]\]/g, '<span class="paper-tooltip">$1</span>');
-  }, [content]);
+const MarkdownContent = React.memo(({ items, content, components, onMouseUp, tooltips }: any) => {
+  const processedContent = useMemo(() => highlightTooltips(content || '', tooltips), [content, tooltips]);
 
   const mergedItems = useMemo(() => {
     if (!items) return null;
@@ -137,6 +183,7 @@ const MarkdownContent = React.memo(({ items, content, components, onMouseUp }: a
         index={index}
         showPageMarker={showPageMarker}
         components={components}
+        tooltips={tooltips}
       />
     );
   };
@@ -167,13 +214,12 @@ const MarkdownContent = React.memo(({ items, content, components, onMouseUp }: a
 });
 
 // 2. Local state for the Add Tooltip dialog to prevent parent re-renders
-const AddTooltipPanel = ({ activeTerm, onClose, onSave }: any) => {
+const AddTooltipPanel = React.forwardRef(({ activeTerm, onClose, onSave }: any, ref: any) => {
   const [description, setDescription] = useState('');
-  const panelRef = useRef<HTMLDivElement>(null);
 
   return (
     <motion.div
-      ref={panelRef}
+      ref={ref}
       initial={{ opacity: 0, y: 10, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       className="absolute z-50 bg-white border border-slate-200 shadow-[0_20px_50px_rgba(0,0,0,0.15)] rounded-2xl p-5 w-80 backdrop-blur-sm"
@@ -220,9 +266,9 @@ const AddTooltipPanel = ({ activeTerm, onClose, onSave }: any) => {
       </div>
     </motion.div>
   );
-};
+});
 
-export default function MarkdownRenderer({ content, items }: MarkdownRendererProps) {
+export default function MarkdownRenderer({ content, items, paperId }: MarkdownRendererProps) {
   const [tooltips, setTooltips] = useState<Tooltip[]>([]);
   const [activeTerm, setActiveTerm] = useState<{ 
     text: string; 
@@ -234,10 +280,28 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
   } | null>(null);
   const [isAddingTooltip, setIsAddingTooltip] = useState(false);
   
-  const containerRef = useRef<HTMLDivElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
+  const viewPanelRef = useRef<HTMLDivElement>(null);
+  const editPanelRef = useRef<HTMLDivElement>(null);
   const selectionMenuRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const reportedKatexErrorsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (paperId) {
+      fetch(`${API_BASE}/paper/${paperId}/annotations`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.annotations) {
+            setTooltips(data.annotations);
+          }
+        })
+      .catch(err => {
+        console.error("Failed to fetch annotations", err);
+        // Fallback for debugging if requests are blocked/failing
+        console.log(`Fetch URL: ${API_BASE}/paper/${paperId}/annotations`);
+      });
+    }
+  }, [paperId]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -274,16 +338,14 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
     return tooltips.filter(t => t.targetText === activeTerm.text);
   }, [activeTerm, tooltips]);
 
-  useEffect(() => {
-    setIsAddingTooltip(false);
-  }, [activeTerm?.text]);
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
       
       // If clicking inside any panel, don't close
-      if (panelRef.current?.contains(target)) return;
+      if (viewPanelRef.current?.contains(target)) return;
+      if (editPanelRef.current?.contains(target)) return;
       if (selectionMenuRef.current?.contains(target)) return;
       if (target.closest('.paper-tooltip')) return;
 
@@ -296,16 +358,19 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
     return () => document.removeEventListener('mousedown', handlePointerDown);
   }, []);
 
-  const handleTooltipClick = useCallback((event: React.MouseEvent<HTMLElement>) => {
+  const handleTooltipInteraction = useCallback((event: React.MouseEvent<HTMLElement>) => {
     event.stopPropagation();
     const target = event.currentTarget;
+    const text = (target.textContent || '').trim();
+    if (!text) return;
+
     const rect = target.getBoundingClientRect();
     const containerRect = containerRef.current?.getBoundingClientRect();
 
     if (containerRect) {
-      setSelection(null); // Clear selection when clicking an existing tooltip
+      setSelection(null); // Clear selection when interacting with an existing tooltip
       setActiveTerm({
-        text: target.textContent || '',
+        text: text,
         rect: {
           top: rect.top - containerRect.top,
           bottom: rect.bottom - containerRect.top,
@@ -322,8 +387,8 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
       if (className === 'paper-tooltip') {
         return (
           <span
-            className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs font-bold mx-1 cursor-help border-b-2 border-indigo-300 shadow-sm hover:bg-indigo-200 transition-colors"
-            onClick={handleTooltipClick}
+            className="paper-tooltip px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded-md text-[0.9em] font-medium mx-0.5 cursor-help border-b-2 border-indigo-200 hover:bg-indigo-100 hover:border-indigo-400 transition-all"
+            onMouseEnter={handleTooltipInteraction}
           >
             {children}
           </span>
@@ -331,10 +396,11 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
       }
       return <span className={className} {...props}>{children}</span>;
     }
-  }), [handleTooltipClick]);
+  }), [handleTooltipInteraction]);
 
   const handleMouseUp = useCallback((e: React.MouseEvent) => {
-    if (panelRef.current?.contains(e.target as Node)) return;
+    if (viewPanelRef.current?.contains(e.target as Node)) return;
+    if (editPanelRef.current?.contains(e.target as Node)) return;
     if (selectionMenuRef.current?.contains(e.target as Node)) return;
 
     const sel = window.getSelection();
@@ -344,7 +410,8 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
   }, []);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    if (panelRef.current?.contains(e.target as Node)) return;
+    if (viewPanelRef.current?.contains(e.target as Node)) return;
+    if (editPanelRef.current?.contains(e.target as Node)) return;
     if (selectionMenuRef.current?.contains(e.target as Node)) return;
 
     const sel = window.getSelection();
@@ -356,7 +423,7 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
 
       if (containerRect) {
         setSelection({
-          text: sel.toString(),
+          text: sel.toString().trim(),
           rect: {
             top: rect.top - containerRect.top,
             bottom: rect.bottom - containerRect.top,
@@ -369,7 +436,7 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
     }
   }, []);
 
-  const saveTooltip = (description: string) => {
+  const saveTooltip = async (description: string) => {
     if (activeTerm && description) {
       const newTooltip: Tooltip = {
         id: Math.random().toString(36).substr(2, 9),
@@ -377,7 +444,26 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
         description: description,
       };
       
-      setTooltips([...tooltips, newTooltip]);
+      const newTooltips = [...tooltips, newTooltip];
+      setTooltips(newTooltips);
+      
+      if (paperId) {
+        try {
+          console.log(`Saving tooltip for paper ${paperId} to ${API_BASE}/paper/${paperId}/annotations`);
+          const res = await fetch(`${API_BASE}/paper/${paperId}/annotations`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newTooltips)
+          });
+          if (!res.ok) {
+            throw new Error(`Failed to save annotations: ${res.status} ${res.statusText}`);
+          }
+          console.log("Annotations saved successfully");
+        } catch (err) {
+          console.error("Failed to save annotations", err);
+        }
+      }
+      
       setActiveTerm(null);
       setIsAddingTooltip(false);
     }
@@ -394,6 +480,7 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
         content={content} 
         components={components} 
         onMouseUp={handleMouseUp} 
+        tooltips={tooltips}
       />
 
       <AnimatePresence>
@@ -426,7 +513,7 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
 
         {activeTerm && !isAddingTooltip && (
           <motion.div
-            ref={panelRef}
+            ref={viewPanelRef}
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 6, scale: 0.96 }}
@@ -489,6 +576,7 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
 
         {isAddingTooltip && activeTerm && (
           <AddTooltipPanel 
+            ref={editPanelRef}
             activeTerm={activeTerm} 
             onClose={() => {
               setIsAddingTooltip(false);

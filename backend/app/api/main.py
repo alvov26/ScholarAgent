@@ -16,7 +16,7 @@ from backend.app.parser.tex_parser import TexParser
 app = FastAPI(title="Scholar Agent API")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -24,10 +24,12 @@ app.add_middleware(
 
 CACHE_DIR = Path("storage/cache/parser")
 CACHE_MD_DIR = Path("storage/cache/markdown")
+ANNOTATIONS_DIR = Path("storage/annotations")
 UPLOADS_DIR = Path("storage/uploads")
 MANIFEST_FILE = Path("storage/cache/manifest.json")
 
 CACHE_MD_DIR.mkdir(parents=True, exist_ok=True)
+ANNOTATIONS_DIR.mkdir(parents=True, exist_ok=True)
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 @app.get("/")
@@ -121,6 +123,23 @@ async def get_paper_content(paper_id: str):
         "items": all_items,
         "pages_count": len(pages)
     }
+
+
+@app.get("/paper/{paper_id}/annotations")
+async def get_annotations(paper_id: str):
+    ann_path = ANNOTATIONS_DIR / f"{paper_id}.json"
+    if not ann_path.exists():
+        return {"annotations": []}
+    with open(ann_path, "r", encoding="utf-8") as handle:
+        return {"annotations": json.load(handle)}
+
+
+@app.post("/paper/{paper_id}/annotations")
+async def save_annotations(paper_id: str, annotations: List[dict]):
+    ann_path = ANNOTATIONS_DIR / f"{paper_id}.json"
+    with open(ann_path, "w", encoding="utf-8") as handle:
+        json.dump(annotations, handle, indent=2)
+    return {"status": "success"}
 
 
 @app.post("/paper/upload")
