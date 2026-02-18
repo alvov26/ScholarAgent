@@ -18,6 +18,37 @@ const unescapeHtml = (text: string) => {
     .replace(/&#125;/g, '}');
 };
 
+const MemoizedMarkdownItem = React.memo(({ item, index, showPageMarker, components }: any) => {
+  const unescaped = item.md ? unescapeHtml(item.md) : '';
+  const processedMd = unescaped.replace(/\[\[([^\]\n]+?)\]\]/g, '<span class="paper-tooltip">$1</span>');
+
+  return (
+    <>
+      {showPageMarker && (
+        <div className="flex items-center gap-4 my-12 opacity-30 select-none">
+          <div className="h-px flex-1 bg-slate-300" />
+          <span className="text-[10px] font-bold tracking-[0.3em] uppercase text-slate-400">Page {item.page}</span>
+          <div className="h-px flex-1 bg-slate-300" />
+        </div>
+      )}
+      <RenderingErrorBoundary metadata={{ page: item.page, type: item.type, index, content: item.md }}>
+        <div className={item.type === 'table' ? 'my-8 overflow-x-auto' : ''}>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm, remarkMath]}
+            rehypePlugins={[
+              rehypeRaw,
+              [rehypeKatex, { throwOnError: true, strict: false }]
+            ]}
+            components={components}
+          >
+            {processedMd}
+          </ReactMarkdown>
+        </div>
+      </RenderingErrorBoundary>
+    </>
+  );
+});
+
 const mergeItemsForMath = (items: any[]) => {
   const merged: any[] = [];
   let buffer: any | null = null;
@@ -84,16 +115,8 @@ interface MarkdownRendererProps {
   items?: any[];
 }
 
-export default function MarkdownRenderer({ content, items }: MarkdownRendererProps) {
-  const [tooltips, setTooltips] = useState<Tooltip[]>([]);
-  const [activeTerm, setActiveTerm] = useState<{ text: string; rect: DOMRect | null } | null>(null);
-  const [isAddingTooltip, setIsAddingTooltip] = useState(false);
-  const [newTooltipDescription, setNewTooltipDescription] = useState('');
-  const containerRef = useRef<HTMLDivElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const reportedKatexErrorsRef = useRef<Set<string>>(new Set());
-
-  // Simple pre-processor for when we have a single content string
+// 1. Memoized Markdown Content
+const MarkdownContent = React.memo(({ items, content, components, onMouseUp }: any) => {
   const processedContent = useMemo(() => {
     if (!content) return '';
     const unescaped = unescapeHtml(content);
@@ -104,6 +127,117 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
     if (!items) return null;
     return mergeItemsForMath(items);
   }, [items]);
+
+  const renderItem = (item: any, index: number) => {
+    const showPageMarker = index > 0 && items && items[index - 1].page !== item.page;
+    return (
+      <MemoizedMarkdownItem
+        key={index}
+        item={item}
+        index={index}
+        showPageMarker={showPageMarker}
+        components={components}
+      />
+    );
+  };
+
+  return (
+    <div 
+      className="prose prose-slate prose-indigo max-w-none prose-headings:font-bold prose-h1:text-3xl prose-p:text-slate-700 prose-p:leading-relaxed"
+      onMouseUp={onMouseUp}
+    >
+      {mergedItems ? (
+        mergedItems.map((item, idx) => renderItem(item, idx))
+      ) : (
+        <RenderingErrorBoundary metadata={{ type: 'mock', content }}>
+          <ReactMarkdown 
+            remarkPlugins={[remarkGfm, remarkMath]} 
+            rehypePlugins={[
+              rehypeRaw, 
+              [rehypeKatex, { throwOnError: true, strict: false }]
+            ]}
+            components={components}
+          >
+            {processedContent}
+          </ReactMarkdown>
+        </RenderingErrorBoundary>
+      )}
+    </div>
+  );
+});
+
+// 2. Local state for the Add Tooltip dialog to prevent parent re-renders
+const AddTooltipPanel = ({ activeTerm, onClose, onSave }: any) => {
+  const [description, setDescription] = useState('');
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  return (
+    <motion.div
+      ref={panelRef}
+      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      className="absolute z-50 bg-white border border-slate-200 shadow-[0_20px_50px_rgba(0,0,0,0.15)] rounded-2xl p-5 w-80 backdrop-blur-sm"
+      style={{
+        top: (activeTerm.rect?.bottom ?? 0) + 14,
+        left: (activeTerm.rect?.left ?? 0) + (activeTerm.rect?.width ?? 0) / 2,
+        transform: 'translateX(-50%)'
+      }}
+    >
+      <div className="flex justify-between items-center mb-3">
+        <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">Create Annotation</span>
+        <button
+          onClick={onClose}
+          className="text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-100 rounded-full transition-colors"
+        >
+          <X size={16} />
+        </button>
+      </div>
+      <p className="text-sm font-semibold mb-4 text-slate-800 line-clamp-2 italic border-l-2 border-indigo-200 pl-3">
+        "{activeTerm.text}"
+      </p>
+      <textarea
+        autoFocus
+        className="w-full border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all bg-slate-50/50"
+        placeholder="What does this mean? Add a definition or note..."
+        rows={4}
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+      />
+      <div className="mt-4 flex justify-end gap-2">
+         <button
+          className="text-slate-500 px-3 py-2 rounded-lg text-sm font-medium hover:bg-slate-100 transition-colors"
+          onClick={onClose}
+        >
+          Cancel
+        </button>
+        <button
+          className="bg-indigo-600 text-white px-5 py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 shadow-md shadow-indigo-200 disabled:opacity-50 disabled:shadow-none transition-all active:scale-95"
+          disabled={!description.trim()}
+          onClick={() => onSave(description)}
+        >
+          Save
+        </button>
+      </div>
+    </motion.div>
+  );
+};
+
+export default function MarkdownRenderer({ content, items }: MarkdownRendererProps) {
+  const [tooltips, setTooltips] = useState<Tooltip[]>([]);
+  const [activeTerm, setActiveTerm] = useState<{ 
+    text: string; 
+    rect: { top: number; bottom: number; left: number; width: number } | null 
+  } | null>(null);
+  const [selection, setSelection] = useState<{
+    text: string;
+    rect: { top: number; bottom: number; left: number; width: number } | null
+  } | null>(null);
+  const [isAddingTooltip, setIsAddingTooltip] = useState(false);
+  
+  const containerRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const selectionMenuRef = useRef<HTMLDivElement>(null);
+  const reportedKatexErrorsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const container = containerRef.current;
@@ -142,34 +276,48 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
 
   useEffect(() => {
     setIsAddingTooltip(false);
-    setNewTooltipDescription('');
   }, [activeTerm?.text]);
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
-      if (!activeTerm) return;
       const target = event.target as HTMLElement;
+      
+      // If clicking inside any panel, don't close
       if (panelRef.current?.contains(target)) return;
+      if (selectionMenuRef.current?.contains(target)) return;
       if (target.closest('.paper-tooltip')) return;
+
       setActiveTerm(null);
+      setSelection(null);
       setIsAddingTooltip(false);
     };
 
     document.addEventListener('mousedown', handlePointerDown);
     return () => document.removeEventListener('mousedown', handlePointerDown);
-  }, [activeTerm]);
+  }, []);
 
   const handleTooltipClick = useCallback((event: React.MouseEvent<HTMLElement>) => {
     event.stopPropagation();
     const target = event.currentTarget;
-    setActiveTerm({
-      text: target.textContent || '',
-      rect: target.getBoundingClientRect()
-    });
+    const rect = target.getBoundingClientRect();
+    const containerRect = containerRef.current?.getBoundingClientRect();
+
+    if (containerRect) {
+      setSelection(null); // Clear selection when clicking an existing tooltip
+      setActiveTerm({
+        text: target.textContent || '',
+        rect: {
+          top: rect.top - containerRect.top,
+          bottom: rect.bottom - containerRect.top,
+          left: rect.left - containerRect.left,
+          width: rect.width,
+        }
+      });
+      setIsAddingTooltip(false);
+    }
   }, []);
 
-  // Custom components for react-markdown
-  const components = {
+  const components = useMemo(() => ({
     span: ({ node, className, children, ...props }: any) => {
       if (className === 'paper-tooltip') {
         return (
@@ -183,109 +331,96 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
       }
       return <span className={className} {...props}>{children}</span>;
     }
-  };
+  }), [handleTooltipClick]);
 
-  const renderItem = (item: any, index: number) => {
-    // Show page marker if it's the first item of a page (except first page)
-    const showPageMarker = index > 0 && items && items[index - 1].page !== item.page;
-    
-    // Unescape and then process tooltips in the markdown
-    const unescaped = item.md ? unescapeHtml(item.md) : '';
-    const processedMd = unescaped.replace(/\[\[([^\]\n]+?)\]\]/g, '<span class="paper-tooltip">$1</span>');
-    
-    return (
-      <React.Fragment key={index}>
-        {showPageMarker && (
-          <div className="flex items-center gap-4 my-12 opacity-30 select-none">
-            <div className="h-px flex-1 bg-slate-300" />
-            <span className="text-[10px] font-bold tracking-[0.3em] uppercase text-slate-400">Page {item.page}</span>
-            <div className="h-px flex-1 bg-slate-300" />
-          </div>
-        )}
-        <RenderingErrorBoundary metadata={{ page: item.page, type: item.type, index, content: item.md }}>
-          <div className={item.type === 'table' ? 'my-8 overflow-x-auto' : ''}>
-            <ReactMarkdown 
-              remarkPlugins={[remarkGfm, remarkMath]} 
-              rehypePlugins={[
-                rehypeRaw, 
-                [rehypeKatex, { throwOnError: true, strict: false }]
-              ]}
-              components={components}
-            >
-              {processedMd}
-            </ReactMarkdown>
-          </div>
-        </RenderingErrorBoundary>
-      </React.Fragment>
-    );
-  };
+  const handleMouseUp = useCallback((e: React.MouseEvent) => {
+    if (panelRef.current?.contains(e.target as Node)) return;
+    if (selectionMenuRef.current?.contains(e.target as Node)) return;
 
-  const handleMouseUp = useCallback(() => {
     const sel = window.getSelection();
     if (sel && sel.toString().trim().length > 0) {
       const range = sel.getRangeAt(0);
       const rect = range.getBoundingClientRect();
-      setActiveTerm({
-        text: sel.toString(),
-        rect: rect
-      });
+      const containerRect = containerRef.current?.getBoundingClientRect();
+
+      if (containerRect) {
+        setSelection({
+          text: sel.toString(),
+          rect: {
+            top: rect.top - containerRect.top,
+            bottom: rect.bottom - containerRect.top,
+            left: rect.left - containerRect.left,
+            width: rect.width,
+          }
+        });
+        setActiveTerm(null); // Hide viewing panel if selecting new text
+      }
     } else {
-      setTimeout(() => {
-        if (!document.getSelection()?.toString()) {
-          setActiveTerm(null);
-        }
-      }, 100);
+      setSelection(null);
     }
   }, []);
 
-  const addTooltip = () => {
-    if (activeTerm && newTooltipDescription) {
+  const saveTooltip = (description: string) => {
+    if (activeTerm && description) {
       const newTooltip: Tooltip = {
         id: Math.random().toString(36).substr(2, 9),
         targetText: activeTerm.text,
-        description: newTooltipDescription,
+        description: description,
       };
       
       setTooltips([...tooltips, newTooltip]);
       setActiveTerm(null);
       setIsAddingTooltip(false);
-      setNewTooltipDescription('');
     }
   };
 
   return (
     <div 
       className="relative max-w-4xl mx-auto p-12 bg-white shadow-xl rounded-2xl min-h-[80vh] border border-slate-100" 
-      onMouseUp={handleMouseUp} 
       ref={containerRef}
     >
-      <div className="prose prose-slate prose-indigo max-w-none prose-headings:font-bold prose-h1:text-3xl prose-p:text-slate-700 prose-p:leading-relaxed">
-        {mergedItems ? (
-          mergedItems.map((item, idx) => renderItem(item, idx))
-        ) : (
-          <RenderingErrorBoundary metadata={{ type: 'mock', content }}>
-            <ReactMarkdown 
-              remarkPlugins={[remarkGfm, remarkMath]} 
-              rehypePlugins={[
-                rehypeRaw, 
-                [rehypeKatex, { throwOnError: true, strict: false }]
-              ]}
-              components={components}
-            >
-              {processedContent}
-            </ReactMarkdown>
-          </RenderingErrorBoundary>
-        )}
-      </div>
+      <MarkdownContent 
+        items={items} 
+        content={content} 
+        components={components} 
+        onMouseUp={handleMouseUp} 
+      />
 
       <AnimatePresence>
+        {selection && (
+          <motion.div
+            ref={selectionMenuRef}
+            initial={{ opacity: 0, scale: 0.9, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 5 }}
+            className="absolute z-50 bg-slate-900 text-white rounded-full shadow-lg flex items-center p-1.5 px-3 gap-2"
+            style={{
+              top: (selection.rect?.top ?? 0) - 45,
+              left: (selection.rect?.left ?? 0) + (selection.rect?.width ?? 0) / 2,
+              transform: 'translateX(-50%)'
+            }}
+          >
+            <button
+              onClick={() => {
+                setActiveTerm(selection);
+                setIsAddingTooltip(true);
+                setSelection(null);
+              }}
+              className="flex items-center gap-2 text-xs font-bold hover:text-indigo-300 transition-colors"
+            >
+              <MessageSquarePlus size={14} />
+              Add Tooltip
+            </button>
+          </motion.div>
+        )}
+
         {activeTerm && !isAddingTooltip && (
           <motion.div
             ref={panelRef}
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 6, scale: 0.96 }}
-            className="fixed z-50 bg-white border border-slate-200 shadow-[0_20px_50px_rgba(0,0,0,0.15)] rounded-2xl p-4 w-80 backdrop-blur-sm"
+            className="absolute z-50 bg-white border border-slate-200 shadow-[0_20px_50px_rgba(0,0,0,0.15)] rounded-2xl p-4 w-80 backdrop-blur-sm"
             style={{
               top: (activeTerm.rect?.bottom ?? 0) + 14,
               left: (activeTerm.rect?.left ?? 0) + (activeTerm.rect?.width ?? 0) / 2,
@@ -343,59 +478,14 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
         )}
 
         {isAddingTooltip && activeTerm && (
-          <motion.div
-            ref={panelRef}
-            initial={{ opacity: 0, y: 10, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            className="fixed z-50 bg-white border border-slate-200 shadow-[0_20px_50px_rgba(0,0,0,0.15)] rounded-2xl p-5 w-80 backdrop-blur-sm"
-            style={{
-              top: (activeTerm.rect?.bottom ?? 0) + 14,
-              left: (activeTerm.rect?.left ?? 0) + (activeTerm.rect?.width ?? 0) / 2,
-              transform: 'translateX(-50%)'
-            }}
-          >
-            <div className="flex justify-between items-center mb-3">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">Create Annotation</span>
-              <button
-                onClick={() => {
-                  setIsAddingTooltip(false);
-                  setActiveTerm(null);
-                }}
-                className="text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-100 rounded-full transition-colors"
-              >
-                <X size={16} />
-              </button>
-            </div>
-            <p className="text-sm font-semibold mb-4 text-slate-800 line-clamp-2 italic border-l-2 border-indigo-200 pl-3">
-              "{activeTerm.text}"
-            </p>
-            <textarea
-              autoFocus
-              className="w-full border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all bg-slate-50/50"
-              placeholder="What does this mean? Add a definition or note..."
-              rows={4}
-              value={newTooltipDescription}
-              onChange={(e) => setNewTooltipDescription(e.target.value)}
-            />
-            <div className="mt-4 flex justify-end gap-2">
-               <button
-                className="text-slate-500 px-3 py-2 rounded-lg text-sm font-medium hover:bg-slate-100 transition-colors"
-                onClick={() => {
-                  setIsAddingTooltip(false);
-                  setActiveTerm(null);
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                className="bg-indigo-600 text-white px-5 py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 shadow-md shadow-indigo-200 disabled:opacity-50 disabled:shadow-none transition-all active:scale-95"
-                disabled={!newTooltipDescription.trim()}
-                onClick={addTooltip}
-              >
-                Save
-              </button>
-            </div>
-          </motion.div>
+          <AddTooltipPanel 
+            activeTerm={activeTerm} 
+            onClose={() => {
+              setIsAddingTooltip(false);
+              setActiveTerm(null);
+            }} 
+            onSave={saveTooltip}
+          />
         )}
       </AnimatePresence>
     </div>
