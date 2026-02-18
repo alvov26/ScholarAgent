@@ -44,6 +44,89 @@ class PDFParser:
         return text.replace("&amp;", "&").replace("&#x26;", "&")\
                    .replace("&#123;", "{").replace("&#125;", "}")
 
+    def _normalize_math_markdown(self, text: str) -> str:
+        if not text:
+            return text
+
+        cleaned = re.sub(r'&#x3C;=""[^>]*>', '', text)
+        cleaned = re.sub(r'&lt;=""[^>]*>', '', cleaned)
+        cleaned = re.sub(r'<[^a-zA-Z][^>]*>', '', cleaned)
+        cleaned = cleaned.replace("</t)", "")
+        cleaned = cleaned.replace('$$=""', '$$').replace('$=""', '$')
+
+        def is_escaped(s: str, index: int) -> bool:
+            backslashes = 0
+            j = index - 1
+            while j >= 0 and s[j] == "\\":
+                backslashes += 1
+                j -= 1
+            return backslashes % 2 == 1
+
+        def sanitize_math(s: str) -> str:
+            out = s.replace("&#x3C;", "<").replace("&#x3E;", ">")\
+                   .replace("&lt;", "<").replace("&gt;", ">")
+            out = re.sub(r'=""(?=\s|\\|$)', '', out)
+            out = re.sub(r'<[^>]*>', '', out)
+            out = out.replace("$", "")
+            return out.strip()
+
+        result = []
+        mode = "text"
+        buffer = []
+        i = 0
+        while i < len(cleaned):
+            ch = cleaned[i]
+            if mode == "text":
+                if ch == "$" and not is_escaped(cleaned, i):
+                    if i + 1 < len(cleaned) and cleaned[i + 1] == "$":
+                        mode = "block"
+                        buffer = []
+                        i += 2
+                        continue
+                    mode = "inline"
+                    buffer = []
+                    i += 1
+                    continue
+                result.append(ch)
+                i += 1
+                continue
+
+            if mode == "block" and ch == "$" and not is_escaped(cleaned, i):
+                if i + 1 < len(cleaned) and cleaned[i + 1] == "$":
+                    mode = "text"
+                    result.append("$$\n")
+                    result.append(sanitize_math("".join(buffer)))
+                    result.append("\n$$")
+                    buffer = []
+                    i += 2
+                    continue
+                next_dollar = cleaned.find("$", i + 1)
+                if next_dollar == -1:
+                    mode = "text"
+                    result.append("$$\n")
+                    result.append(sanitize_math("".join(buffer)))
+                    result.append("\n$$")
+                    buffer = []
+                    i += 1
+                    continue
+
+            if mode == "inline" and ch == "$" and not is_escaped(cleaned, i):
+                mode = "text"
+                result.append("$")
+                result.append(sanitize_math("".join(buffer)))
+                result.append("$")
+                buffer = []
+                i += 1
+                continue
+
+            buffer.append(ch)
+            i += 1
+
+        if mode != "text" and buffer:
+            result.append("".join(buffer))
+
+        return "".join(result)
+
     def parse(self, file_path: str) -> List[dict]:
         file_hash = self._get_file_hash(file_path)
         cache_file = self.cache_dir / f"{file_hash}.json"
@@ -67,12 +150,16 @@ class PDFParser:
         for file_obj in json_objs:
             for page in file_obj.get("pages", []):
                 if "md" in page:
-                    page["md"] = self._unescape_html(page["md"])
+                    page["md"] = self._normalize_math_markdown(
+                        self._unescape_html(page["md"])
+                    )
                 if "text" in page:
                     page["text"] = self._unescape_html(page["text"])
                 for item in page.get("items", []):
                     if "md" in item:
-                        item["md"] = self._unescape_html(item["md"])
+                        item["md"] = self._normalize_math_markdown(
+                            self._unescape_html(item["md"])
+                        )
                     if "value" in item:
                         item["value"] = self._unescape_html(item["value"])
 

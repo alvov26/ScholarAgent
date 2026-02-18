@@ -18,99 +18,6 @@ const unescapeHtml = (text: string) => {
     .replace(/&#125;/g, '}');
 };
 
-const normalizeMath = (text: string) => {
-  let result = '';
-  let i = 0;
-  let mode: 'text' | 'inline' | 'block' = 'text';
-  let buffer = '';
-  const cleaned = text
-    .replace(/&#x3C;=""[^>]*>/g, '')
-    .replace(/&lt;=""[^>]*>/g, '')
-    .replace(/<[^a-zA-Z][^>]*>/g, '')
-    .replace(/<\/t\)/g, '')
-    .replace(/\$\$=""/g, '$$')
-    .replace(/\$=""/g, '$');
-
-  const isEscaped = (index: number) => {
-    let backslashes = 0;
-    for (let j = index - 1; j >= 0 && cleaned[j] === '\\'; j--) {
-      backslashes += 1;
-    }
-    return backslashes % 2 === 1;
-  };
-
-  const decodeEntitiesInMath = (input: string) => {
-    return input
-      .replace(/&#x3C;/g, '<')
-      .replace(/&#x3E;/g, '>')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>');
-  };
-
-  const sanitizeMath = (input: string) => {
-    let out = decodeEntitiesInMath(input);
-    out = out.replace(/=""(?=\s|\\|$)/g, '');
-    out = out.replace(/<[^>]*>/g, '');
-    out = out.replace(/\$/g, '');
-    return out.trim();
-  };
-
-  while (i < cleaned.length) {
-    if (mode === 'text') {
-      if (cleaned[i] === '$' && !isEscaped(i)) {
-        if (cleaned[i + 1] === '$') {
-          mode = 'block';
-          buffer = '';
-          i += 2;
-          continue;
-        }
-        mode = 'inline';
-        buffer = '';
-        i += 1;
-        continue;
-      }
-      result += cleaned[i];
-      i += 1;
-      continue;
-    }
-
-    if (mode === 'block' && cleaned[i] === '$' && !isEscaped(i)) {
-      if (cleaned[i + 1] === '$') {
-        mode = 'text';
-        result += `$$\n${sanitizeMath(buffer)}\n$$`;
-        buffer = '';
-        i += 2;
-        continue;
-      }
-      const nextDollar = cleaned.indexOf('$', i + 1);
-      if (nextDollar === -1) {
-        mode = 'text';
-        result += `$$\n${sanitizeMath(buffer)}\n$$`;
-        buffer = '';
-        i += 1;
-        continue;
-      }
-    }
-
-    if (mode === 'inline' && cleaned[i] === '$' && !isEscaped(i)) {
-      mode = 'text';
-      result += `$${sanitizeMath(buffer)}$`;
-      buffer = '';
-      i += 1;
-      continue;
-    }
-
-    buffer += cleaned[i];
-    i += 1;
-  }
-
-  if (mode !== 'text' && buffer) {
-    result += buffer;
-  }
-
-  return result;
-};
-
 const mergeItemsForMath = (items: any[]) => {
   const merged: any[] = [];
   let buffer: any | null = null;
@@ -189,8 +96,7 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
   const processedContent = useMemo(() => {
     if (!content) return '';
     const unescaped = unescapeHtml(content);
-    const withTooltips = unescaped.replace(/\[\[([^\]\n]+?)\]\]/g, '<span class="paper-tooltip">$1</span>');
-    return normalizeMath(withTooltips);
+    return unescaped.replace(/\[\[([^\]\n]+?)\]\]/g, '<span class="paper-tooltip">$1</span>');
   }, [content]);
 
   const mergedItems = useMemo(() => {
@@ -248,8 +154,7 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
     
     // Unescape and then process tooltips in the markdown
     const unescaped = item.md ? unescapeHtml(item.md) : '';
-    const withTooltips = unescaped.replace(/\[\[([^\]\n]+?)\]\]/g, '<span class="paper-tooltip">$1</span>');
-    const processedMd = normalizeMath(withTooltips);
+    const processedMd = unescaped.replace(/\[\[([^\]\n]+?)\]\]/g, '<span class="paper-tooltip">$1</span>');
     
     return (
       <React.Fragment key={index}>
