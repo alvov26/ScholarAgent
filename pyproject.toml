@@ -8,5 +8,8 @@ dependencies = [
     "llama-parse",
     "python-dotenv",
     "fastapi",
-    "uvicorn"
+    "uvicorn",
+    "python-multipart",
+    "pypandoc",
+    "pypandoc-binary"
 ]
