@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageSquarePlus, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -8,6 +8,163 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import rehypeRaw from 'rehype-raw';
+import RenderingErrorBoundary from './RenderingErrorBoundary';
+
+const unescapeHtml = (text: string) => {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&#x26;/g, '&')
+    .replace(/&#123;/g, '{')
+    .replace(/&#125;/g, '}');
+};
+
+const normalizeMath = (text: string) => {
+  let result = '';
+  let i = 0;
+  let mode: 'text' | 'inline' | 'block' = 'text';
+  let buffer = '';
+  const cleaned = text
+    .replace(/&#x3C;=""[^>]*>/g, '')
+    .replace(/&lt;=""[^>]*>/g, '')
+    .replace(/<[^a-zA-Z][^>]*>/g, '')
+    .replace(/<\/t\)/g, '')
+    .replace(/\$\$=""/g, '$$')
+    .replace(/\$=""/g, '$');
+
+  const isEscaped = (index: number) => {
+    let backslashes = 0;
+    for (let j = index - 1; j >= 0 && cleaned[j] === '\\'; j--) {
+      backslashes += 1;
+    }
+    return backslashes % 2 === 1;
+  };
+
+  const decodeEntitiesInMath = (input: string) => {
+    return input
+      .replace(/&#x3C;/g, '<')
+      .replace(/&#x3E;/g, '>')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>');
+  };
+
+  const sanitizeMath = (input: string) => {
+    let out = decodeEntitiesInMath(input);
+    out = out.replace(/=""(?=\s|\\|$)/g, '');
+    out = out.replace(/<[^>]*>/g, '');
+    out = out.replace(/\$/g, '');
+    return out.trim();
+  };
+
+  while (i < cleaned.length) {
+    if (mode === 'text') {
+      if (cleaned[i] === '$' && !isEscaped(i)) {
+        if (cleaned[i + 1] === '$') {
+          mode = 'block';
+          buffer = '';
+          i += 2;
+          continue;
+        }
+        mode = 'inline';
+        buffer = '';
+        i += 1;
+        continue;
+      }
+      result += cleaned[i];
+      i += 1;
+      continue;
+    }
+
+    if (mode === 'block' && cleaned[i] === '$' && !isEscaped(i)) {
+      if (cleaned[i + 1] === '$') {
+        mode = 'text';
+        result += `$$\n${sanitizeMath(buffer)}\n$$`;
+        buffer = '';
+        i += 2;
+        continue;
+      }
+      const nextDollar = cleaned.indexOf('$', i + 1);
+      if (nextDollar === -1) {
+        mode = 'text';
+        result += `$$\n${sanitizeMath(buffer)}\n$$`;
+        buffer = '';
+        i += 1;
+        continue;
+      }
+    }
+
+    if (mode === 'inline' && cleaned[i] === '$' && !isEscaped(i)) {
+      mode = 'text';
+      result += `$${sanitizeMath(buffer)}$`;
+      buffer = '';
+      i += 1;
+      continue;
+    }
+
+    buffer += cleaned[i];
+    i += 1;
+  }
+
+  if (mode !== 'text' && buffer) {
+    result += buffer;
+  }
+
+  return result;
+};
+
+const mergeItemsForMath = (items: any[]) => {
+  const merged: any[] = [];
+  let buffer: any | null = null;
+  let openMath = false;
+
+  const countBlockDelims = (input: string) => {
+    let count = 0;
+    for (let i = 0; i < input.length - 1; i++) {
+      if (input[i] === '$' && input[i + 1] === '$' && (i === 0 || input[i - 1] !== '\\')) {
+        count += 1;
+        i += 1;
+      }
+    }
+    return count;
+  };
+
+  for (const item of items) {
+    const md = item?.md || '';
+    if (item?.type !== 'text') {
+      if (buffer) {
+        merged.push(buffer);
+        buffer = null;
+        openMath = false;
+      }
+      merged.push(item);
+      continue;
+    }
+
+    if (!buffer) {
+      buffer = { ...item };
+      const delimCount = countBlockDelims(md);
+      openMath = delimCount % 2 === 1;
+      if (!openMath) {
+        merged.push(buffer);
+        buffer = null;
+      }
+      continue;
+    }
+
+    buffer.md = `${buffer.md}\n${md}`;
+    const delimCount = countBlockDelims(buffer.md || '');
+    openMath = delimCount % 2 === 1;
+    if (!openMath) {
+      merged.push(buffer);
+      buffer = null;
+    }
+  }
+
+  if (buffer) {
+    merged.push(buffer);
+  }
+
+  return merged;
+};
 
 interface Tooltip {
   id: string;
@@ -26,11 +183,50 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
   const [isAddingTooltip, setIsAddingTooltip] = useState(false);
   const [newTooltipDescription, setNewTooltipDescription] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
+  const reportedKatexErrorsRef = useRef<Set<string>>(new Set());
 
   // Simple pre-processor for when we have a single content string
   const processedContent = useMemo(() => {
-    return content?.replace(/\[\[([^\]\n]+?)\]\]/g, '<span class="paper-tooltip">$1</span>') || '';
+    if (!content) return '';
+    const unescaped = unescapeHtml(content);
+    const withTooltips = unescaped.replace(/\[\[([^\]\n]+?)\]\]/g, '<span class="paper-tooltip">$1</span>');
+    return normalizeMath(withTooltips);
   }, [content]);
+
+  const mergedItems = useMemo(() => {
+    if (!items) return null;
+    return mergeItemsForMath(items);
+  }, [items]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const errorNodes = Array.from(container.querySelectorAll<HTMLElement>('.katex-error'));
+    if (errorNodes.length === 0) return;
+
+    const newlyReported: { message: string; snippet: string }[] = [];
+    for (const node of errorNodes) {
+      const message = node.getAttribute('title') || 'KaTeX render error';
+      const snippet = (node.textContent || '').slice(0, 200);
+      const key = `${message}||${snippet}`;
+      if (!reportedKatexErrorsRef.current.has(key)) {
+        reportedKatexErrorsRef.current.add(key);
+        newlyReported.push({ message, snippet });
+      }
+    }
+
+    if (newlyReported.length > 0) {
+      console.group(`%c [KATEX ERRORS] ${newlyReported.length} new`, "color: white; background: #ef4444; font-weight: bold; padding: 2px 6px; border-radius: 4px;");
+      for (const err of newlyReported) {
+        console.error('Error Message:', err.message);
+        if (err.snippet) {
+          console.log('Snippet:', err.snippet);
+        }
+      }
+      console.groupEnd();
+    }
+  }, [content, items]);
 
   // Custom components for react-markdown
   const components = {
@@ -50,8 +246,10 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
     // Show page marker if it's the first item of a page (except first page)
     const showPageMarker = index > 0 && items && items[index - 1].page !== item.page;
     
-    // Process tooltips in the markdown - using a slightly more robust regex
-    const processedMd = item.md?.replace(/\[\[([^\]\n]+?)\]\]/g, '<span class="paper-tooltip">$1</span>') || '';
+    // Unescape and then process tooltips in the markdown
+    const unescaped = item.md ? unescapeHtml(item.md) : '';
+    const withTooltips = unescaped.replace(/\[\[([^\]\n]+?)\]\]/g, '<span class="paper-tooltip">$1</span>');
+    const processedMd = normalizeMath(withTooltips);
     
     return (
       <React.Fragment key={index}>
@@ -62,15 +260,20 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
             <div className="h-px flex-1 bg-slate-300" />
           </div>
         )}
-        <div className={item.type === 'table' ? 'my-8 overflow-x-auto' : ''}>
-          <ReactMarkdown 
-            remarkPlugins={[remarkGfm, remarkMath]} 
-            rehypePlugins={[rehypeRaw, rehypeKatex]}
-            components={components}
-          >
-            {processedMd}
-          </ReactMarkdown>
-        </div>
+        <RenderingErrorBoundary metadata={{ page: item.page, type: item.type, index, content: item.md }}>
+          <div className={item.type === 'table' ? 'my-8 overflow-x-auto' : ''}>
+            <ReactMarkdown 
+              remarkPlugins={[remarkGfm, remarkMath]} 
+              rehypePlugins={[
+                rehypeRaw, 
+                [rehypeKatex, { throwOnError: true, strict: false }]
+              ]}
+              components={components}
+            >
+              {processedMd}
+            </ReactMarkdown>
+          </div>
+        </RenderingErrorBoundary>
       </React.Fragment>
     );
   };
@@ -116,16 +319,21 @@ export default function MarkdownRenderer({ content, items }: MarkdownRendererPro
       ref={containerRef}
     >
       <div className="prose prose-slate prose-indigo max-w-none prose-headings:font-bold prose-h1:text-3xl prose-p:text-slate-700 prose-p:leading-relaxed">
-        {items ? (
-          items.map((item, idx) => renderItem(item, idx))
+        {mergedItems ? (
+          mergedItems.map((item, idx) => renderItem(item, idx))
         ) : (
-          <ReactMarkdown 
-            remarkPlugins={[remarkGfm, remarkMath]} 
-            rehypePlugins={[rehypeRaw, rehypeKatex]}
-            components={components}
-          >
-            {processedContent}
-          </ReactMarkdown>
+          <RenderingErrorBoundary metadata={{ type: 'mock', content }}>
+            <ReactMarkdown 
+              remarkPlugins={[remarkGfm, remarkMath]} 
+              rehypePlugins={[
+                rehypeRaw, 
+                [rehypeKatex, { throwOnError: true, strict: false }]
+              ]}
+              components={components}
+            >
+              {processedContent}
+            </ReactMarkdown>
+          </RenderingErrorBoundary>
         )}
       </div>
 

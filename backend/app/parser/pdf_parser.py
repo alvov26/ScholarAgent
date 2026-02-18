@@ -40,6 +40,10 @@ class PDFParser:
                 sha256_hash.update(byte_block)
         return sha256_hash.hexdigest()
 
+    def _unescape_html(self, text: str) -> str:
+        return text.replace("&amp;", "&").replace("&#x26;", "&")\
+                   .replace("&#123;", "{").replace("&#125;", "}")
+
     def parse(self, file_path: str) -> List[dict]:
         file_hash = self._get_file_hash(file_path)
         cache_file = self.cache_dir / f"{file_hash}.json"
@@ -59,6 +63,19 @@ class PDFParser:
         print(f"Parsing {file_path} via LlamaParse (JSON mode)...")
         json_objs = self.parser.get_json_result(file_path)
         
+        # Post-process: unescape common HTML entities
+        for file_obj in json_objs:
+            for page in file_obj.get("pages", []):
+                if "md" in page:
+                    page["md"] = self._unescape_html(page["md"])
+                if "text" in page:
+                    page["text"] = self._unescape_html(page["text"])
+                for item in page.get("items", []):
+                    if "md" in item:
+                        item["md"] = self._unescape_html(item["md"])
+                    if "value" in item:
+                        item["value"] = self._unescape_html(item["value"])
+
         # Cache the result
         with open(cache_file, "w") as f:
             json.dump(json_objs, f)

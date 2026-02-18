@@ -31,7 +31,7 @@ Won't:
 ## Stages
 
 1. Document Cracking
-	- PDF-to-Markdown (LlamaParse primary; Marker or Docling as alternatives)
+	- PDF-to-Structured-JSON (LlamaParse JSON mode primary; Marker or Docling as alternatives)
 	- Structure Parsing (LlamaIndex), sectioning
 2. Initial Prep
 	1. Symbol resolution & Project Glossary extraction
@@ -39,9 +39,9 @@ Won't:
 3. Serving
 	- Frontend
 		- Framework: Next.js
-		- Markdown Renderer: `MDX`
-			- Interactive tooltips using `Radix UI Popovers` or `Framer Motion`
-		- Math Renderer: `KaTex`
+		- Markdown Renderer: `react-markdown`
+			- Interactive tooltips using `Framer Motion` (via `[[Term]]` syntax)
+		- Math Renderer: `KaTeX`
 	- Backend
 		- Server: FastAPI
 		- RAG Hierarchy: LlamaIndex (`PropertyGraphIndex` for Graph-RAG)
