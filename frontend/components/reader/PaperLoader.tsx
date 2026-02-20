@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import MarkdownRenderer from "@/components/reader/MarkdownRenderer";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
@@ -201,6 +202,12 @@ export default function PaperLoader() {
         <p className="text-slate-500 font-medium">
           Upload a PDF, Markdown, or LaTeX file, or load from cache.
         </p>
+        <Link
+          href="/math-test"
+          className="inline-block mt-4 text-sm text-indigo-600 hover:text-indigo-700 font-medium underline"
+        >
+          MathJax Test Page →
+        </Link>
       </div>
 
       <div className="max-w-5xl mx-auto grid gap-6 md:grid-cols-2 mb-10">

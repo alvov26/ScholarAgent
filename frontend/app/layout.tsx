@@ -18,32 +18,25 @@ export default function RootLayout({
         <Script id="mathjax-config" strategy="beforeInteractive">
           {`
             window.MathJax = {
-              loader: {load: ['[tex]/enrich']},
               tex: {
-                packages: {'[+]': ['enrich']},
                 inlineMath: [['$', '$'], ['\\\\(', '\\\\)']],
                 displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']],
-                processEnvironments: true
+                processEnvironments: true,
+                packages: {'[+]': ['base', 'ams', 'noerrors', 'noundefined']}
               },
               options: {
-                enableEnrichment: true,
-                renderActions: {
-                  addDataLatex: [10, (doc) => {
-                    for (const math of doc.math) {
-                      const node = math.typesetRoot;
-                      if (node && node.setAttribute) {
-                        node.setAttribute('data-latex', math.math);
-                      }
-                    }
-                  }, '']
-                },
-                // Skip parsing for math that has already been processed or is in hidden elements
-                ignoreHtmlClass: 'mjx-ignore',
-                processHtmlClass: 'mjx-process'
+                enableMenu: false,
+                menuOptions: {
+                  settings: {
+                    assistiveMml: false
+                  }
+                }
               },
               startup: {
                 pageReady: () => {
                   return window.MathJax.startup.defaultPageReady().then(() => {
+                    console.log('MathJax fully loaded, version:', window.MathJax.version);
+                    console.log('typesetPromise available:', typeof window.MathJax.typesetPromise);
                     window.dispatchEvent(new CustomEvent('MathJaxReady'));
                   });
                 }
@@ -52,7 +45,7 @@ export default function RootLayout({
           `}
         </Script>
         <Script
-          src="https://cdn.jsdelivr.net/npm/mathjax@4.0.0-beta.7/es5/tex-chtml.js"
+          src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"
           id="MathJax-script"
           strategy="afterInteractive"
         />

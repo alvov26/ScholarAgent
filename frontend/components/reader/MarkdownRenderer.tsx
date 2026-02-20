@@ -6,9 +6,10 @@ import { MessageSquarePlus, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
-import rehypeMathjax from 'rehype-mathjax/browser';
 import rehypeRaw from 'rehype-raw';
+import rehypeMathjaxBrowser from 'rehype-mathjax/browser';
 import RenderingErrorBoundary from './RenderingErrorBoundary';
+
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
 
@@ -112,7 +113,12 @@ const MemoizedMarkdownItem = React.memo(({ item, index, showPageMarker, componen
             remarkPlugins={[remarkGfm, remarkMath]}
             rehypePlugins={[
               rehypeRaw,
-              rehypeMathjax
+              [rehypeMathjaxBrowser, {
+                tex: {
+                  inlineMath: [['$', '$'], ['\\(', '\\)']],
+                  displayMath: [['$$', '$$'], ['\\[', '\\]']]
+                }
+              }]
             ]}
             components={components}
           >
@@ -223,11 +229,16 @@ const MarkdownContent = React.memo(({ items, content, components, onMouseUp, too
         mergedItems.map((item, idx) => renderItem(item, idx))
       ) : (
         <RenderingErrorBoundary metadata={{ type: 'mock', content }}>
-          <ReactMarkdown 
-            remarkPlugins={[remarkGfm, remarkMath]} 
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm, remarkMath]}
             rehypePlugins={[
-              rehypeRaw, 
-              rehypeMathjax
+              rehypeRaw,
+              [rehypeMathjaxBrowser, {
+                tex: {
+                  inlineMath: [['$', '$'], ['\\(', '\\)']],
+                  displayMath: [['$$', '$$'], ['\\[', '\\]']]
+                }
+              }]
             ]}
             components={components}
           >
@@ -549,7 +560,7 @@ export default function MarkdownRenderer({ content, items, paperId }: MarkdownRe
 
   return (
     <div 
-      className="relative max-w-4xl mx-auto p-12 bg-white shadow-xl rounded-2xl min-h-[80vh] border border-slate-100" 
+      className="relative max-w-4xl mx-auto p-12 bg-white shadow-xl rounded-2xl min-h-[80vh] border border-slate-100 mjx-process" 
       ref={containerRef}
       onContextMenu={handleContextMenu}
       onClick={handleMathClick}
