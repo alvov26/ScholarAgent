@@ -6,7 +6,7 @@ import { MessageSquarePlus, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
-import rehypeKatex from 'rehype-katex';
+import rehypeMathjax from 'rehype-mathjax/browser';
 import rehypeRaw from 'rehype-raw';
 import RenderingErrorBoundary from './RenderingErrorBoundary';
 
@@ -33,7 +33,8 @@ const highlightTooltips = (text: string, tooltips: Tooltip[]) => {
   });
 
   // 2. Protect math blocks to avoid highlighting terms inside LaTeX
-  processed = processed.replace(/(\$\$[\s\S]+?\$\$|\$[\s\S]+?\$)/g, (match) => {
+  // Supports $...$, $$...$$, \(...\), \[...\], and \begin{env}...\end{env}
+  processed = processed.replace(/(\$\$[\s\S]+?\$\$|\$[\s\S]+?\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\\begin\{([a-zA-Z0-9*]+)\}[\s\S]+?\\end\{\2\})/g, (match) => {
     protectedBlocks.push(match);
     return `\x00${protectedBlocks.length - 1}\x00`;
   });
@@ -111,7 +112,7 @@ const MemoizedMarkdownItem = React.memo(({ item, index, showPageMarker, componen
             remarkPlugins={[remarkGfm, remarkMath]}
             rehypePlugins={[
               rehypeRaw,
-              [rehypeKatex, { throwOnError: true, strict: false }]
+              rehypeMathjax
             ]}
             components={components}
           >
@@ -226,7 +227,7 @@ const MarkdownContent = React.memo(({ items, content, components, onMouseUp, too
             remarkPlugins={[remarkGfm, remarkMath]} 
             rehypePlugins={[
               rehypeRaw, 
-              [rehypeKatex, { throwOnError: true, strict: false }]
+              rehypeMathjax
             ]}
             components={components}
           >
@@ -297,7 +298,13 @@ export default function MarkdownRenderer({ content, items, paperId }: MarkdownRe
   const [tooltips, setTooltips] = useState<Tooltip[]>([]);
   const [activeTerm, setActiveTerm] = useState<{ 
     text: string; 
-    rect: { top: number; bottom: number; left: number; width: number } | null 
+    rect: { top: number; bottom: number; left: number; width: number } | null;
+    mathContext?: {
+      semanticId: string | null;
+      semanticType: string | null;
+      semanticRole: string | null;
+      fullSource: string;
+    }
   } | null>(null);
   const [selection, setSelection] = useState<{
     text: string;
@@ -305,11 +312,12 @@ export default function MarkdownRenderer({ content, items, paperId }: MarkdownRe
   } | null>(null);
   const [isAddingTooltip, setIsAddingTooltip] = useState(false);
   
+  const [isMathJaxReady, setIsMathJaxReady] = useState(false);
+  
   const viewPanelRef = useRef<HTMLDivElement>(null);
   const editPanelRef = useRef<HTMLDivElement>(null);
   const selectionMenuRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const reportedKatexErrorsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (paperId) {
@@ -329,34 +337,31 @@ export default function MarkdownRenderer({ content, items, paperId }: MarkdownRe
   }, [paperId]);
 
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
+    const checkReady = () => {
+      if ((window as any).MathJax && (window as any).MathJax.typesetPromise) {
+        setIsMathJaxReady(true);
+      }
+    };
 
-    const errorNodes = Array.from(container.querySelectorAll<HTMLElement>('.katex-error'));
-    if (errorNodes.length === 0) return;
+    checkReady();
+    window.addEventListener('MathJaxReady', checkReady);
+    return () => window.removeEventListener('MathJaxReady', checkReady);
+  }, []);
 
-    const newlyReported: { message: string; snippet: string }[] = [];
-    for (const node of errorNodes) {
-      const message = node.getAttribute('title') || 'KaTeX render error';
-      const snippet = (node.textContent || '').slice(0, 200);
-      const key = `${message}||${snippet}`;
-      if (!reportedKatexErrorsRef.current.has(key)) {
-        reportedKatexErrorsRef.current.add(key);
-        newlyReported.push({ message, snippet });
+  useEffect(() => {
+    // Typeset math when content or tooltips change, or when MathJax becomes ready
+    if (isMathJaxReady && (window as any).MathJax && (window as any).MathJax.typesetPromise && containerRef.current) {
+      const MJ = (window as any).MathJax;
+      try {
+        if (MJ.typesetClear) MJ.typesetClear([containerRef.current]);
+        if (MJ.texReset) MJ.texReset();
+        MJ.typesetPromise([containerRef.current]).catch((err: any) => console.error('MathJax typeset failed:', err));
+      } catch (err) {
+        console.error('MathJax operation failed:', err);
       }
     }
+  }, [content, items, tooltips, isMathJaxReady]);
 
-    if (newlyReported.length > 0) {
-      console.group(`%c [KATEX ERRORS] ${newlyReported.length} new`, "color: white; background: #ef4444; font-weight: bold; padding: 2px 6px; border-radius: 4px;");
-      for (const err of newlyReported) {
-        console.error('Error Message:', err.message);
-        if (err.snippet) {
-          console.log('Snippet:', err.snippet);
-        }
-      }
-      console.groupEnd();
-    }
-  }, [content, items]);
 
   const matchingTooltips = useMemo(() => {
     if (!activeTerm) return [];
@@ -494,11 +499,60 @@ export default function MarkdownRenderer({ content, items, paperId }: MarkdownRe
     }
   };
 
+  const handleMathClick = useCallback((event: React.MouseEvent) => {
+    let target = event.target as HTMLElement;
+    console.log("Math clicked, target:", target);
+    
+    // Find the nearest parent with data-semantic-id
+    while (target && target !== containerRef.current && !target.hasAttribute('data-semantic-id')) {
+      target = target.parentElement as HTMLElement;
+    }
+
+    if (target && target.hasAttribute('data-semantic-id')) {
+      const semanticId = target.getAttribute('data-semantic-id');
+      const semanticType = target.getAttribute('data-semantic-type');
+      const semanticRole = target.getAttribute('data-semantic-role');
+      console.log("Found semantic node:", { semanticId, semanticType, semanticRole });
+      
+      // Find the parent mjx-container to get the full TeX source
+      let container = target;
+      while (container && container.tagName !== 'MJX-CONTAINER') {
+        container = container.parentElement as HTMLElement;
+      }
+      
+      const fullSource = container?.getAttribute('data-latex') || '';
+      
+      const rect = target.getBoundingClientRect();
+      const containerRect = containerRef.current?.getBoundingClientRect();
+
+      if (containerRect) {
+        setSelection(null);
+        setActiveTerm({
+          text: `Math symbol: ${target.innerText || semanticType || 'unknown'}`,
+          rect: {
+            top: rect.top - containerRect.top,
+            bottom: rect.bottom - containerRect.top,
+            left: rect.left - containerRect.left,
+            width: rect.width,
+          },
+          mathContext: {
+            semanticId,
+            semanticType,
+            semanticRole,
+            fullSource
+          }
+        });
+        setIsAddingTooltip(false);
+      }
+    }
+  }, []);
+
   return (
     <div 
       className="relative max-w-4xl mx-auto p-12 bg-white shadow-xl rounded-2xl min-h-[80vh] border border-slate-100" 
       ref={containerRef}
       onContextMenu={handleContextMenu}
+      onClick={handleMathClick}
     >
       <style jsx global>{`
         .paper-tooltip {
@@ -533,6 +587,19 @@ export default function MarkdownRenderer({ content, items, paperId }: MarkdownRe
           background-color: #c7d2fe !important; /* bg-indigo-200 */
           border-bottom-color: #4f46e5 !important; /* border-indigo-600 */
           z-index: 20;
+        }
+
+        /* MathJax Semantic Node Highlighting */
+        [data-semantic-id]:hover {
+          background-color: rgba(99, 102, 241, 0.1);
+          outline: 1px solid rgba(99, 102, 241, 0.4);
+          border-radius: 2px;
+          cursor: help;
+        }
+        
+        mjx-container {
+          padding: 2px;
+          transition: all 0.2s;
         }
       `}</style>
 

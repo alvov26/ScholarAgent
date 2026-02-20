@@ -30,7 +30,7 @@ class PDFParser:
             api_key=self.api_key,
             result_type="json",
             verbose=True,
-            user_prompt="Output clean markdown. Do not use HTML tags. Represent inline mathematical formulas using LaTeX wrapped in single dollar signs ($) and block formulas using double dollar signs ($$). Use the ampersand character (&) for alignment in LaTeX environments, do not escape it as an HTML entity."
+            user_prompt="Output clean markdown. Do not use HTML tags. Represent inline mathematical formulas using LaTeX wrapped in single dollar signs ($) and block formulas using double dollar signs ($$). Ensure that math symbols are NOT wrapped in backticks. Use the ampersand character (&) for alignment in LaTeX environments, do not escape it as an HTML entity."
         )
 
     def _get_file_hash(self, file_path: str) -> str:
@@ -48,6 +48,7 @@ class PDFParser:
         if not text:
             return text
 
+        # Clean up common artifacts
         cleaned = re.sub(r'&#x3C;=""[^>]*>', '', text)
         cleaned = re.sub(r'&lt;=""[^>]*>', '', cleaned)
         cleaned = re.sub(r'<[^a-zA-Z][^>]*>', '', cleaned)
@@ -67,7 +68,9 @@ class PDFParser:
                    .replace("&lt;", "<").replace("&gt;", ">")
             out = re.sub(r'=""(?=\s|\\|$)', '', out)
             out = re.sub(r'<[^>]*>', '', out)
-            out = out.replace("$", "")
+            out = out.replace("$", "").replace("`", "")
+            # Remove LaTeX delimiters if present
+            out = out.replace("\\(", "").replace("\\)", "").replace("\\[", "").replace("\\]", "")
             return out.strip()
 
         result = []
@@ -76,7 +79,10 @@ class PDFParser:
         i = 0
         while i < len(cleaned):
             ch = cleaned[i]
+            
+            # Check for delimiters
             if mode == "text":
+                # Double dollar
                 if ch == "$" and not is_escaped(cleaned, i):
                     if i + 1 < len(cleaned) and cleaned[i + 1] == "$":
                         mode = "block"
@@ -87,12 +93,28 @@ class PDFParser:
                     buffer = []
                     i += 1
                     continue
+                # \( or \[
+                if ch == "\\" and i + 1 < len(cleaned):
+                    next_ch = cleaned[i + 1]
+                    if next_ch == "(":
+                        mode = "inline"
+                        buffer = []
+                        i += 2
+                        continue
+                    if next_ch == "[":
+                        mode = "block"
+                        buffer = []
+                        i += 2
+                        continue
+                
                 result.append(ch)
                 i += 1
                 continue
 
-            if mode == "block" and ch == "$" and not is_escaped(cleaned, i):
-                if i + 1 < len(cleaned) and cleaned[i + 1] == "$":
+            # End delimiters
+            if mode == "block":
+                # $$
+                if ch == "$" and not is_escaped(cleaned, i) and i + 1 < len(cleaned) and cleaned[i + 1] == "$":
                     mode = "text"
                     result.append("$$\n")
                     result.append(sanitize_math("".join(buffer)))
@@ -100,24 +122,35 @@ class PDFParser:
                     buffer = []
                     i += 2
                     continue
-                next_dollar = cleaned.find("$", i + 1)
-                if next_dollar == -1:
+                # \]
+                if ch == "\\" and not is_escaped(cleaned, i) and i + 1 < len(cleaned) and cleaned[i + 1] == "]":
                     mode = "text"
                     result.append("$$\n")
                     result.append(sanitize_math("".join(buffer)))
                     result.append("\n$$")
                     buffer = []
+                    i += 2
+                    continue
+            
+            if mode == "inline":
+                # $
+                if ch == "$" and not is_escaped(cleaned, i):
+                    mode = "text"
+                    result.append("$")
+                    result.append(sanitize_math("".join(buffer)))
+                    result.append("$")
+                    buffer = []
                     i += 1
                     continue
-
-            if mode == "inline" and ch == "$" and not is_escaped(cleaned, i):
-                mode = "text"
-                result.append("$")
-                result.append(sanitize_math("".join(buffer)))
-                result.append("$")
-                buffer = []
-                i += 1
-                continue
+                # \)
+                if ch == "\\" and not is_escaped(cleaned, i) and i + 1 < len(cleaned) and cleaned[i + 1] == ")":
+                    mode = "text"
+                    result.append("$")
+                    result.append(sanitize_math("".join(buffer)))
+                    result.append("$")
+                    buffer = []
+                    i += 2
+                    continue
 
             buffer.append(ch)
             i += 1
