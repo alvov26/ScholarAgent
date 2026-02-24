@@ -95,6 +95,32 @@ export function HTMLRenderer({
           margin-bottom: 1em;
         }
 
+        .html-renderer ul,
+        .html-renderer ol {
+          margin: 1em 0;
+          padding-left: 2em;
+        }
+
+        .html-renderer li {
+          margin-bottom: 0.5em;
+          display: flex;
+          align-items: baseline;
+        }
+
+        /* Fix LaTeXML list item bullets and content */
+        .html-renderer .ltx_tag_item {
+          display: inline-block;
+          margin-right: 0.5em;
+          flex-shrink: 0;
+          line-height: inherit;
+        }
+
+        .html-renderer li .ltx_para {
+          display: block;
+          flex: 1;
+          margin: 0;
+        }
+
         .html-renderer figure {
           margin: 2em 0;
           text-align: center;
