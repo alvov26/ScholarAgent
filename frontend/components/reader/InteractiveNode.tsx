@@ -297,16 +297,8 @@ function TooltipPopover({
                   </div>
                 </div>
               ) : (
-                <>
-                  {tooltip.target_text && (
-                    <div className="text-xs font-semibold text-indigo-700 mb-1">
-                      {tooltip.target_text}
-                    </div>
-                  )}
-                  <p className="text-sm text-slate-700 leading-relaxed mb-2">
-                    {tooltip.content}
-                  </p>
-                  <div className="flex justify-end gap-1">
+                <div className="relative">
+                  <div className="absolute top-0 right-0 flex gap-1">
                     <button
                       onClick={() => startEdit(tooltip)}
                       className="flex items-center gap-1 px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded transition-colors"
@@ -322,7 +314,18 @@ function TooltipPopover({
                       Delete
                     </button>
                   </div>
-                </>
+                  {tooltip.target_text && (
+                    <>
+                      <div className="text-sm font-semibold text-indigo-700 mb-2 pr-24 break-words">
+                        {tooltip.target_text}
+                      </div>
+                      <div className="border-t border-slate-200 mb-2"></div>
+                    </>
+                  )}
+                  <p className="text-sm text-slate-700 leading-relaxed break-words">
+                    {tooltip.content}
+                  </p>
+                </div>
               )}
             </div>
           ))}
