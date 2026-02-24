@@ -1,0 +1,177 @@
+"use client";
+
+import { useState, useEffect, useCallback } from 'react';
+import { apiFetch, API_BASE } from './useApi';
+
+export interface Tooltip {
+  id: string;
+  paper_id: string;
+  dom_node_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TooltipMap {
+  [domNodeId: string]: { id: string; content: string };
+}
+
+export function useTooltips(paperId: string | null) {
+  const [tooltips, setTooltips] = useState<Tooltip[]>([]);
+  const [tooltipMap, setTooltipMap] = useState<TooltipMap>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Build a map of dom_node_id -> tooltip for easy lookup
+  useEffect(() => {
+    const map: TooltipMap = {};
+    tooltips.forEach(t => {
+      map[t.dom_node_id] = { id: t.id, content: t.content };
+    });
+    setTooltipMap(map);
+  }, [tooltips]);
+
+  const fetchTooltips = useCallback(async () => {
+    if (!paperId) {
+      setTooltips([]);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiFetch<Tooltip[] | { tooltips: Tooltip[] }>(`/api/papers/${paperId}/tooltips`);
+      const tooltipList = Array.isArray(data) ? data : data.tooltips || [];
+      setTooltips(tooltipList);
+    } catch (err: any) {
+      setError(err.detail || 'Failed to fetch tooltips');
+    } finally {
+      setLoading(false);
+    }
+  }, [paperId]);
+
+  // Fetch tooltips when paperId changes
+  useEffect(() => {
+    fetchTooltips();
+  }, [fetchTooltips]);
+
+  const createTooltip = useCallback(async (
+    domNodeId: string,
+    content: string
+  ): Promise<Tooltip | null> => {
+    if (!paperId) return null;
+
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/papers/${paperId}/tooltips`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dom_node_id: domNodeId, content }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ detail: 'Create failed' }));
+        throw { detail: err.detail, status: response.status };
+      }
+
+      const newTooltip = await response.json();
+
+      // Update local state
+      setTooltips(prev => {
+        // Replace if same dom_node_id exists, otherwise add
+        const existing = prev.findIndex(t => t.dom_node_id === domNodeId);
+        if (existing >= 0) {
+          const updated = [...prev];
+          updated[existing] = newTooltip;
+          return updated;
+        }
+        return [...prev, newTooltip];
+      });
+
+      return newTooltip;
+    } catch (err: any) {
+      setError(err.detail || 'Failed to create tooltip');
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, [paperId]);
+
+  const updateTooltip = useCallback(async (
+    tooltipId: string,
+    content: string
+  ): Promise<Tooltip | null> => {
+    if (!paperId) return null;
+
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/papers/${paperId}/tooltips/${tooltipId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ detail: 'Update failed' }));
+        throw { detail: err.detail, status: response.status };
+      }
+
+      const updatedTooltip = await response.json();
+
+      // Update local state
+      setTooltips(prev => prev.map(t =>
+        t.id === tooltipId ? updatedTooltip : t
+      ));
+
+      return updatedTooltip;
+    } catch (err: any) {
+      setError(err.detail || 'Failed to update tooltip');
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, [paperId]);
+
+  const deleteTooltip = useCallback(async (tooltipId: string): Promise<boolean> => {
+    if (!paperId) return false;
+
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/papers/${paperId}/tooltips/${tooltipId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ detail: 'Delete failed' }));
+        throw { detail: err.detail, status: response.status };
+      }
+
+      // Update local state
+      setTooltips(prev => prev.filter(t => t.id !== tooltipId));
+      return true;
+    } catch (err: any) {
+      setError(err.detail || 'Failed to delete tooltip');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, [paperId]);
+
+  return {
+    tooltips,
+    tooltipMap,
+    loading,
+    error,
+    fetchTooltips,
+    createTooltip,
+    updateTooltip,
+    deleteTooltip,
+    clearError: () => setError(null),
+  };
+}
+
+export default useTooltips;

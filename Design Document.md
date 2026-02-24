@@ -1,54 +1,77 @@
-#scholar_agent
-## Outline
+# Scholar Agent (Core MVP)
 
->Agent-enhanced paper reader, providing the user with a markdown document, eagerly enriched with tooltips, tree-like structure to navigate, RAG to answer questions.
+## Outline
+An interactive, web-based academic paper reader that compiles arXiv LaTeX source files into accessible HTML5. It provides robust, node-level interaction with math formulas and allows users to create, attach, and persist tooltips to text and symbols across reading sessions.
+
+## Philosophy
+**LaTeX-first, deterministic pipeline**. No PDF parsing heuristics, no markdown intermediaries. Direct LaTeX → HTML5 + MathML compilation for maximum reliability and precision.
+
+---
 
 ## Features
 
-Must:
-- Robust in-formula selection: Precise, node-based symbol selection using MathJax 4 semantic enrichment.
-	- Users can click on individual symbols or sub-expressions within a formula.
-	- Selection is powered by the MathJax Semantic Tree (SRE), ensuring logical consistency (e.g., selecting the entire superscript or a specific variable).
-	- Selected symbols can be used as input for agent annotations or manual tooltips.
-- Automatic tooltips to terms and math symbols, persistent across the document, editable by the user
-	- Symbol Glossary Agent: scan LaTeX blocks to build a "Project Glossary" with context-aware resolution (link back to definition source)
-	- Should also be able to enhance / deepen or shorten the tooltip
-- Logical Flow Map: Tree-like structure for the agent and the user to navigate the paper
-	- Not just the headers/subheaders, but the actual logical narrative (Motivation → Core Hypothesis → Proof → Validation)
-- Question answering with RAG based on the structure
+### MVP: Core Rendering & Interaction
+- **Source Compilation**: Accepts an arXiv source folder (`.tar.gz` with `.tex`, `.bib`, etc.) and compiles it into a single structured HTML5 document.
+- **Robust In-Formula Selection**: Precise, node-based symbol selection using MathJax 4 Semantic Enrichment (SRE).
+    - Users can click on individual symbols or sub-expressions within a formula (rendered from MathML).
+    - Ensures logical consistency (e.g., selecting the entire superscript vs. a specific base variable).
+- **Persistent User Tooltips**: Users can highlight text or click math symbols to attach manual tooltips and notes.
+    - Tooltips persist between sessions.
+    - Tooltips are anchored to unique, stable DOM identifiers generated during the HTML compilation.
+- **Interactive Bibliography**: Citations are clickable links that scroll to or display the bibliography entry.
 
-Should:
-- User can step in to edit the tooltips, or chat with the agent to enhance a tooltip
-- User profile-dependent tooltip generation:
-	- Considers user expertise (e.g. "ML Master Student") to prioritize/skip tooltips.
-	- Supports manual customization: user can explicitly specify areas of expertise or ignorance.
-- Reference Peeking: fetch abstracts/TLDRs of cited papers using Semantic Scholar API on hover.
+### Post-MVP: Agentic Features (Deferred)
+- Symbol Glossary Agent & context-aware auto-resolution.
+- Logical Flow Map & structural RAG (Motivation → Core Hypothesis → Proof).
+- User-profile dependent tooltip generation.
+- Semantic Scholar API integration for "Reference Peeking".
 
-Could:
-- Deep Reference Peeking: analyze cited papers to show locally relevant fragments instead of just abstracts.
-
-Won't:
-- Writing papers yourself
+### Won't Have
+- Writing papers
 - Math animations (e.g. Manim integration)
+- PDF parsing (completely removed)
 
+---
 
-## Stages
+## Architecture & Stages
 
-1. Document Cracking
-	- PDF-to-Structured-JSON (LlamaParse JSON mode primary; Marker or Docling as alternatives)
-	- Structure Parsing (LlamaIndex), sectioning
-2. Initial Prep
-	1. Symbol resolution & Project Glossary extraction
-	2. Tooltip generation (based on user profile & expertise overrides)
-3. Serving
-	- Frontend
-		- Framework: Next.js
-		- Markdown Renderer: `react-markdown`
-			- Interactive tooltips using `Framer Motion` (via `[[Term]]` syntax)
-		- Math Renderer: `MathJax 4` (with Semantic Enrichment for precise selection)
-		- Dependencies: `react-markdown`, `remark-math`, `rehype-mathjax`, `mathjax-full`, `framer-motion`
-	- Backend
-		- Server: FastAPI
-		- RAG Hierarchy: LlamaIndex (`PropertyGraphIndex` for Graph-RAG)
-		- Database: `PostgreSQL` + `pgvector` or `LanceDB` for combined relational metadata and vector storage
+### Stage 1: Document Compilation (The "Cracking" Phase)
+**Input**: arXiv `.tar.gz` source archive
+**Output**: Rich HTML5 + MathML
+
+- **Toolchain**: `LaTeXML` (packaged via the `engrafo` Docker container for reliable environment handling).
+- **Process**:
+    1. Unpack source archive.
+    2. Run LaTeXML to resolve macros, bibliography (`.bbl`/`.bib`), and generate HTML5.
+    3. **Post-Processing (Crucial)**: Inject stable, deterministic `data-id` attributes into the HTML nodes (paragraphs, sections, math blocks) so the frontend has anchors for persisting tooltips.
+
+### Stage 2: Core Serving & Persistence
+- **Backend**: FastAPI
+    - **API**: Endpoints to upload source archives, fetch compiled HTML, and CRUD endpoints for user tooltips.
+    - **Database**: PostgreSQL (Relational tables mapping `user_id` + `document_id` + `dom_node_id` to tooltip content).
+    - *(Note: Vector storage like pgvector/LanceDB is shelved until the RAG/Agentic phase).*
+
+- **Frontend**: Next.js
+    - **Renderer**: `html-react-parser` (Replaces `react-markdown`).
+        - This library allows you to take the raw HTML string from the backend and intercept specific tags (like `<math>` or `<span class="citation">`) to replace them with interactive React components.
+    - **Math Engine**: `MathJax 4` (via `mathjax-full`).
+        - Takes the MathML output from LaTeXML, applies Semantic Enrichment (SRE), and renders it as interactable SVG/HTML.
+    - **Interactivity**: `Framer Motion` for smooth tooltip positioning and transitions.
+
+---
+
+## Tech Stack
+
+### Backend
+- **FastAPI**: API server
+- **PostgreSQL**: Relational database for tooltips and metadata
+- **LaTeXML**: LaTeX → HTML5 + MathML compiler (via Docker)
+- No LlamaParse, no pypandoc, no LlamaIndex (for MVP)
+
+### Frontend
+- **Next.js**: React framework
+- **html-react-parser**: HTML → React component tree
+- **mathjax-full**: MathML rendering with semantic enrichment
+- **framer-motion**: Tooltip animations
+- No react-markdown, no remark-math, no rehype-mathjax (replaced by direct HTML rendering)
 

@@ -24,14 +24,20 @@ export default function RootLayout({
                 processEnvironments: true,
                 packages: {'[+]': ['base', 'ams', 'noerrors', 'noundefined']}
               },
+              mml: {
+                // MathML input options for LaTeXML output
+              },
               options: {
                 enableMenu: false,
                 menuOptions: {
                   settings: {
-                    assistiveMml: false
+                    assistiveMml: true
                   }
                 },
                 enableEnrichment: true,
+                sre: {
+                  speech: 'deep'  // Enable semantic enrichment
+                },
                 renderActions: {
                   addMenu: []
                 }
@@ -52,7 +58,7 @@ export default function RootLayout({
           `}
         </Script>
         <Script
-          src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js"
+          src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/mml-chtml.js"
           id="MathJax-script"
           strategy="afterInteractive"
         />

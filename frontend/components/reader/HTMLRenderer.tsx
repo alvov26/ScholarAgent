@@ -1,0 +1,209 @@
+"use client";
+
+import React from 'react';
+import parse, { Element, domToReact, DOMNode, HTMLReactParserOptions } from 'html-react-parser';
+import { MathJaxNode } from './MathJaxNode';
+import { InteractiveNode } from './InteractiveNode';
+
+interface HTMLRendererProps {
+  html: string;
+  paperId: string;
+  tooltips: Record<string, { id: string; content: string }>;
+  onTooltipCreate: (domNodeId: string, content: string) => void;
+  onTooltipDelete: (tooltipId: string) => void;
+}
+
+/**
+ * HTMLRenderer - Renders LaTeXML-compiled HTML with interactive components.
+ *
+ * Intercepts specific tags to replace them with React components:
+ * - <math> tags → MathJaxNode (MathML rendering with SRE)
+ * - Elements with data-id → InteractiveNode (tooltip anchoring)
+ */
+export function HTMLRenderer({
+  html,
+  paperId,
+  tooltips,
+  onTooltipCreate,
+  onTooltipDelete
+}: HTMLRendererProps) {
+
+  const options: HTMLReactParserOptions = {
+    replace: (domNode) => {
+      if (!(domNode instanceof Element)) {
+        return;
+      }
+
+      // Handle <math> elements - render with MathJax
+      if (domNode.name === 'math') {
+        return (
+          <MathJaxNode
+            key={domNode.attribs?.['data-id'] || Math.random().toString(36)}
+            mathml={domNode}
+          />
+        );
+      }
+
+      // Handle elements with data-id attribute - make them interactive
+      const dataId = domNode.attribs?.['data-id'];
+      if (dataId && isInteractiveTag(domNode.name)) {
+        const tooltip = tooltips[dataId];
+
+        return (
+          <InteractiveNode
+            key={dataId}
+            tag={domNode.name}
+            dataId={dataId}
+            attributes={domNode.attribs}
+            tooltip={tooltip}
+            onTooltipCreate={(content) => onTooltipCreate(dataId, content)}
+            onTooltipDelete={tooltip ? () => onTooltipDelete(tooltip.id) : undefined}
+          >
+            {domToReact(domNode.children as DOMNode[], options)}
+          </InteractiveNode>
+        );
+      }
+
+      // Let other elements render normally
+      return;
+    }
+  };
+
+  return (
+    <article className="html-renderer prose prose-slate prose-indigo max-w-none">
+      <style jsx global>{`
+        .html-renderer {
+          line-height: 1.8;
+        }
+
+        .html-renderer h1,
+        .html-renderer h2,
+        .html-renderer h3,
+        .html-renderer h4,
+        .html-renderer h5,
+        .html-renderer h6 {
+          font-weight: 700;
+          margin-top: 1.5em;
+          margin-bottom: 0.5em;
+        }
+
+        .html-renderer h1 { font-size: 2em; }
+        .html-renderer h2 { font-size: 1.5em; }
+        .html-renderer h3 { font-size: 1.25em; }
+
+        .html-renderer p {
+          margin-bottom: 1em;
+        }
+
+        .html-renderer figure {
+          margin: 2em 0;
+          text-align: center;
+        }
+
+        .html-renderer figcaption {
+          font-size: 0.875em;
+          color: #64748b;
+          margin-top: 0.5em;
+        }
+
+        .html-renderer table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: 1.5em 0;
+        }
+
+        .html-renderer th,
+        .html-renderer td {
+          border: 1px solid #e2e8f0;
+          padding: 0.5em 1em;
+          text-align: left;
+        }
+
+        .html-renderer th {
+          background-color: #f8fafc;
+          font-weight: 600;
+        }
+
+        .html-renderer blockquote {
+          border-left: 4px solid #6366f1;
+          padding-left: 1em;
+          margin: 1.5em 0;
+          color: #475569;
+          font-style: italic;
+        }
+
+        .html-renderer pre {
+          background-color: #1e293b;
+          color: #e2e8f0;
+          padding: 1em;
+          border-radius: 0.5em;
+          overflow-x: auto;
+        }
+
+        .html-renderer code {
+          font-family: ui-monospace, monospace;
+          font-size: 0.875em;
+        }
+
+        .html-renderer a {
+          color: #4f46e5;
+          text-decoration: underline;
+        }
+
+        .html-renderer a:hover {
+          color: #4338ca;
+        }
+
+        /* LaTeXML specific styles */
+        .html-renderer .ltx_theorem {
+          background-color: #f8fafc;
+          border-left: 4px solid #6366f1;
+          padding: 1em;
+          margin: 1.5em 0;
+        }
+
+        .html-renderer .ltx_proof {
+          margin: 1em 0;
+          padding-left: 1em;
+          border-left: 2px solid #cbd5e1;
+        }
+
+        .html-renderer .ltx_equation {
+          display: flex;
+          justify-content: center;
+          margin: 1.5em 0;
+        }
+
+        .html-renderer .ltx_ref {
+          color: #4f46e5;
+          cursor: pointer;
+        }
+
+        .html-renderer .ltx_cite {
+          color: #059669;
+        }
+
+        .html-renderer .ltx_bibliography {
+          margin-top: 3em;
+          padding-top: 2em;
+          border-top: 1px solid #e2e8f0;
+        }
+      `}</style>
+
+      {parse(html, options)}
+    </article>
+  );
+}
+
+/**
+ * Check if a tag should be made interactive (clickable for tooltips)
+ */
+function isInteractiveTag(tagName: string): boolean {
+  const interactiveTags = new Set([
+    'p', 'section', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'figure', 'table', 'li', 'blockquote', 'pre'
+  ]);
+  return interactiveTags.has(tagName);
+}
+
+export default HTMLRenderer;

@@ -1,419 +1,294 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import MarkdownRenderer from "@/components/reader/MarkdownRenderer";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
-
-type PaperMeta = {
-  id: string;
-  filename: string;
-  type: "pdf" | "md" | "tex";
-};
+import { useEffect, useState, useCallback } from "react";
+import { usePapers, Paper, PaperDetail } from "@/hooks/usePapers";
+import { useTooltips } from "@/hooks/useTooltips";
+import { HTMLRenderer } from "./HTMLRenderer";
+import { Loader2, Upload, ExternalLink, Trash2, RefreshCw, FileText, AlertCircle } from "lucide-react";
 
 export default function PaperLoader() {
-  const [papers, setPapers] = useState<PaperMeta[]>([]);
-  const [selectedId, setSelectedId] = useState<string>("");
-  const [selectedType, setSelectedType] = useState<PaperMeta["type"] | null>(null);
-  const [content, setContent] = useState<string>("");
-  const [items, setItems] = useState<any[] | null>(null);
-  const [latexStructure, setLatexStructure] = useState<any>(null);
+  const {
+    papers,
+    loading: papersLoading,
+    error: papersError,
+    fetchPapers,
+    fetchPaper,
+    uploadPaper,
+    uploadArxiv,
+    compilePaper,
+    deletePaper,
+    clearError: clearPapersError,
+  } = usePapers();
+
+  const [selectedPaperId, setSelectedPaperId] = useState<string | null>(null);
+  const [currentPaper, setCurrentPaper] = useState<PaperDetail | null>(null);
+  const [arxivInput, setArxivInput] = useState("");
   const [status, setStatus] = useState<string>("");
-  const [error, setError] = useState<string>("");
-  const [arxivLink, setArxivLink] = useState<string>("");
 
-  const loadPapers = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/papers`, { cache: "no-store" });
-      if (!res.ok) {
-        throw new Error("Failed to fetch cached papers");
-      }
-      const data = await res.json();
-      setPapers(data.papers || []);
-    } catch (err: any) {
-      setError(err.message || "Failed to load cache");
-    }
-  };
+  const {
+    tooltipMap,
+    loading: tooltipsLoading,
+    error: tooltipsError,
+    createTooltip,
+    deleteTooltip,
+  } = useTooltips(selectedPaperId);
 
-  const loadPaper = async (paperId: string, type: PaperMeta["type"]) => {
-    setStatus("Loading paper...");
-    setError("");
-    setContent("");
-    setItems(null);
-    setLatexStructure(null);
-
-    try {
-      // Try to fetch structured LaTeX first for .tex files
-      if (type === "tex") {
-        try {
-          console.log(`Fetching structured LaTeX for paper ${paperId}`);
-          const latexRes = await fetch(`${API_BASE}/paper/${paperId}/latex`, { cache: "no-store" });
-          console.log(`LaTeX fetch response status: ${latexRes.status}`);
-          if (latexRes.ok) {
-            const latexData = await latexRes.json();
-            console.log(`Loaded structured LaTeX with ${latexData.sections?.length || 0} sections`);
-            setLatexStructure(latexData);
-            setStatus("");
-            return; // Use LaTeX structure, skip markdown
-          } else {
-            console.log(`LaTeX fetch failed: ${latexRes.statusText}`);
-          }
-        } catch (latexErr) {
-          console.error("Error fetching structured LaTeX:", latexErr);
-          console.log("Falling back to markdown");
-        }
-      }
-
-      // Fallback to markdown
-      const mdRes = await fetch(`${API_BASE}/paper/${paperId}/markdown`, { cache: "no-store" });
-      if (!mdRes.ok) {
-        throw new Error("Failed to fetch markdown");
-      }
-      const mdData = await mdRes.json();
-      setContent(mdData.markdown || "");
-
-      if (type === "pdf") {
-        const contentRes = await fetch(`${API_BASE}/paper/${paperId}/content`, { cache: "no-store" });
-        if (contentRes.ok) {
-          const contentData = await contentRes.json();
-          setItems(contentData.items || []);
-        }
-      }
-      setStatus("");
-    } catch (err: any) {
-      setError(err.message || "Failed to load paper");
-      setStatus("");
-    }
-  };
-
+  // Load papers on mount
   useEffect(() => {
-    loadPapers();
-  }, []);
+    fetchPapers();
+  }, [fetchPapers]);
 
-  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  // Load selected paper
+  const loadPaper = useCallback(async (paperId: string) => {
+    setStatus("Loading paper...");
+    const paper = await fetchPaper(paperId);
+    if (paper) {
+      setCurrentPaper(paper);
+      setSelectedPaperId(paperId);
+    }
+    setStatus("");
+  }, [fetchPaper]);
+
+  // Handle file upload
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    setStatus("Uploading and processing...");
-    setError("");
+    setStatus("Uploading and compiling...");
+    clearPapersError();
 
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch(`${API_BASE}/paper/upload`, { method: "POST", body: formData });
-      if (!res.ok) {
-        const detail = await res.json().catch(() => ({}));
-        throw new Error(detail.detail || "Upload failed");
-      }
-      const data = await res.json();
-      setSelectedId(data.paper_id);
-      setSelectedType(data.type);
-      await loadPapers();
-      await loadPaper(data.paper_id, data.type);
-    } catch (err: any) {
-      setError(err.message || "Upload failed");
-    } finally {
-      setStatus("");
-      event.target.value = "";
+    const paper = await uploadPaper(file, true);
+    if (paper) {
+      await loadPaper(paper.id);
     }
+    setStatus("");
+    event.target.value = "";
   };
 
-  const handleArchiveChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  // Handle arXiv fetch
+  const handleArxivFetch = async () => {
+    if (!arxivInput.trim()) return;
 
-    setStatus("Uploading archive...");
-    setError("");
+    setStatus("Fetching from arXiv...");
+    clearPapersError();
 
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch(`${API_BASE}/paper/upload`, { method: "POST", body: formData });
-      if (!res.ok) {
-        const detail = await res.json().catch(() => ({}));
-        throw new Error(detail.detail || "Upload failed");
-      }
-      const data = await res.json();
-      setSelectedId(data.paper_id);
-      setSelectedType(data.type);
-      await loadPapers();
-      await loadPaper(data.paper_id, data.type);
-    } catch (err: any) {
-      setError(err.message || "Upload failed");
-    } finally {
-      setStatus("");
-      event.target.value = "";
+    const paper = await uploadArxiv(arxivInput.trim(), true);
+    if (paper) {
+      await loadPaper(paper.id);
+      setArxivInput("");
     }
+    setStatus("");
   };
 
-  const handleFolderChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (!files || files.length === 0) return;
+  // Handle recompile
+  const handleRecompile = async () => {
+    if (!selectedPaperId) return;
 
-    setStatus("Uploading folder...");
-    setError("");
+    setStatus("Recompiling...");
+    clearPapersError();
 
-    try {
-      const formData = new FormData();
-      Array.from(files).forEach((file) => {
-        formData.append("files", file, file.name);
-        const relPath = (file as any).webkitRelativePath || file.name;
-        formData.append("paths", relPath);
-      });
-      const res = await fetch(`${API_BASE}/paper/upload/folder`, { method: "POST", body: formData });
-      if (!res.ok) {
-        const detail = await res.json().catch(() => ({}));
-        throw new Error(detail.detail || "Folder upload failed");
-      }
-      const data = await res.json();
-      setSelectedId(data.paper_id);
-      setSelectedType(data.type);
-      await loadPapers();
-      await loadPaper(data.paper_id, data.type);
-    } catch (err: any) {
-      setError(err.message || "Folder upload failed");
-    } finally {
-      setStatus("");
-      event.target.value = "";
+    const paper = await compilePaper(selectedPaperId);
+    if (paper) {
+      await loadPaper(paper.id);
     }
+    setStatus("");
   };
 
-  const handleArxivSubmit = async () => {
-    if (!arxivLink.trim()) {
-      setError("Enter an arXiv URL or ID");
-      return;
-    }
+  // Handle delete
+  const handleDelete = async () => {
+    if (!selectedPaperId) return;
 
-    setStatus("Fetching arXiv source...");
-    setError("");
+    if (!confirm("Delete this paper and all its annotations?")) return;
 
-    try {
-      const formData = new FormData();
-      formData.append("url_or_id", arxivLink.trim());
-      const res = await fetch(`${API_BASE}/paper/upload/arxiv`, { method: "POST", body: formData });
-      if (!res.ok) {
-        const detail = await res.json().catch(() => ({}));
-        throw new Error(detail.detail || "arXiv fetch failed");
-      }
-      const data = await res.json();
-      setSelectedId(data.paper_id);
-      setSelectedType(data.type);
-      await loadPapers();
-      await loadPaper(data.paper_id, data.type);
-      setArxivLink("");
-    } catch (err: any) {
-      setError(err.message || "arXiv fetch failed");
-    } finally {
-      setStatus("");
+    setStatus("Deleting...");
+    const success = await deletePaper(selectedPaperId);
+    if (success) {
+      setSelectedPaperId(null);
+      setCurrentPaper(null);
     }
+    setStatus("");
   };
 
-  const handleLoadCached = async () => {
-    if (!selectedId || !selectedType) {
-      setError("Select a cached paper first");
-      return;
-    }
-    await loadPaper(selectedId, selectedType);
-  };
-
-  const handleDeleteCached = async () => {
-    if (!selectedId) {
-      setError("Select a cached paper first");
-      return;
-    }
-
-    if (!confirm("Are you sure you want to delete this cached paper? This will remove all associated files.")) {
-      return;
-    }
-
-    setStatus("Deleting paper...");
-    setError("");
-
-    try {
-      const res = await fetch(`${API_BASE}/paper/${selectedId}`, { method: "DELETE" });
-      if (!res.ok) {
-        const detail = await res.json().catch(() => ({}));
-        throw new Error(detail.detail || "Delete failed");
-      }
-
-      // Clear selection and reload list
-      setSelectedId("");
-      setSelectedType(null);
-      setContent("");
-      setItems(null);
-      setLatexStructure(null);
-      await loadPapers();
-      setStatus("");
-    } catch (err: any) {
-      setError(err.message || "Delete failed");
-      setStatus("");
-    }
-  };
+  const error = papersError || tooltipsError;
+  const loading = papersLoading || tooltipsLoading || !!status;
 
   return (
-    <main className="min-h-screen bg-slate-50 py-12 px-4">
-      <div className="max-w-5xl mx-auto mb-10 text-center">
+    <main className="min-h-screen bg-slate-50 py-8 px-4">
+      {/* Header */}
+      <div className="max-w-5xl mx-auto mb-8 text-center">
         <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight mb-2">
           Scholar Agent <span className="text-indigo-600">Reader</span>
         </h1>
-        <p className="text-slate-500 font-medium">
-          Upload a PDF, Markdown, or LaTeX file, or load from cache.
+        <p className="text-slate-500">
+          Upload LaTeX sources or fetch from arXiv to start reading
         </p>
-        <Link
-          href="/math-test"
-          className="inline-block mt-4 text-sm text-indigo-600 hover:text-indigo-700 font-medium underline"
-        >
-          MathJax Test Page →
-        </Link>
       </div>
 
-      <div className="max-w-5xl mx-auto grid gap-6 md:grid-cols-2 mb-10">
-        <section className="bg-white rounded-2xl border border-slate-100 shadow-md p-6">
-          <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-400 mb-4">
-            Upload Document
+      {/* Controls */}
+      <div className="max-w-5xl mx-auto grid gap-4 md:grid-cols-3 mb-8">
+        {/* Upload */}
+        <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
+            <Upload size={14} />
+            Upload LaTeX
           </h2>
           <input
             type="file"
-            accept=".pdf,.md,.tex"
-            onChange={handleFileChange}
-            className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+            accept=".tar.gz,.tgz,.tar,.zip"
+            onChange={handleFileUpload}
+            disabled={loading}
+            className="block w-full text-sm text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 disabled:opacity-50"
           />
-          <p className="text-xs text-slate-400 mt-3">
-            Supported: PDF, Markdown, LaTeX (.tex).
+          <p className="text-xs text-slate-400 mt-2">
+            .tar.gz, .tgz, or .zip archives
           </p>
         </section>
 
-        <section className="bg-white rounded-2xl border border-slate-100 shadow-md p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-400">
-              Cached Papers
-            </h2>
-            <button
-              onClick={loadPapers}
-              className="text-xs font-semibold text-indigo-600 hover:text-indigo-700"
-            >
-              Refresh
-            </button>
-          </div>
-          <div className="flex gap-3">
-            <select
-              value={selectedId}
-              onChange={(event) => {
-                const nextId = event.target.value;
-                setSelectedId(nextId);
-                const match = papers.find((paper) => paper.id === nextId);
-                setSelectedType(match?.type || null);
-              }}
-              className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 bg-slate-50"
-            >
-              <option value="">Select cached file...</option>
-              {papers.map((paper) => (
-                <option key={paper.id} value={paper.id}>
-                  {paper.filename} ({paper.type})
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={handleLoadCached}
-              className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors"
-            >
-              Load
-            </button>
-            <button
-              onClick={handleDeleteCached}
-              disabled={!selectedId}
-              className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Delete cached paper"
-            >
-              Delete
-            </button>
-          </div>
-          {papers.length === 0 && (
-            <p className="text-xs text-slate-400 mt-3">No cached files yet.</p>
-          )}
-        </section>
-      </div>
-
-      <div className="max-w-5xl mx-auto grid gap-6 md:grid-cols-3 mb-10">
-        <section className="bg-white rounded-2xl border border-slate-100 shadow-md p-6">
-          <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-400 mb-4">
-            LaTeX Archive
-          </h2>
-          <input
-            type="file"
-            accept=".zip,.tar,.tar.gz,.tgz"
-            onChange={handleArchiveChange}
-            className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
-          />
-          <p className="text-xs text-slate-400 mt-3">
-            Upload .zip or .tar.gz with sources, images, and .bib.
-          </p>
-        </section>
-
-        <section className="bg-white rounded-2xl border border-slate-100 shadow-md p-6">
-          <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-400 mb-4">
-            LaTeX Folder
-          </h2>
-          <input
-            type="file"
-            multiple
-            onChange={handleFolderChange}
-            className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
-            // @ts-ignore
-            webkitdirectory="true"
-          />
-          <p className="text-xs text-slate-400 mt-3">
-            Select the LaTeX project folder (Chrome-based browsers).
-          </p>
-        </section>
-
-        <section className="bg-white rounded-2xl border border-slate-100 shadow-md p-6">
-          <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-400 mb-4">
+        {/* arXiv */}
+        <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
+            <ExternalLink size={14} />
             arXiv Source
           </h2>
           <div className="flex gap-2">
             <input
               type="text"
-              value={arxivLink}
-              onChange={(event) => setArxivLink(event.target.value)}
-              placeholder="arXiv URL or ID"
-              className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 bg-slate-50"
+              value={arxivInput}
+              onChange={(e) => setArxivInput(e.target.value)}
+              placeholder="2401.12345"
+              disabled={loading}
+              className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none disabled:opacity-50"
+              onKeyDown={(e) => e.key === "Enter" && handleArxivFetch()}
             />
             <button
-              onClick={handleArxivSubmit}
-              className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors"
+              onClick={handleArxivFetch}
+              disabled={loading || !arxivInput.trim()}
+              className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               Fetch
             </button>
           </div>
-          <p className="text-xs text-slate-400 mt-3">
-            Example: 2401.12345 or arxiv.org/abs/2401.12345
-          </p>
+        </section>
+
+        {/* Cached Papers */}
+        <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+              <FileText size={14} />
+              Library
+            </h2>
+            <button
+              onClick={fetchPapers}
+              disabled={loading}
+              className="text-xs text-indigo-600 hover:text-indigo-700 disabled:opacity-50"
+            >
+              <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
+            </button>
+          </div>
+          <select
+            value={selectedPaperId || ""}
+            onChange={(e) => e.target.value && loadPaper(e.target.value)}
+            disabled={loading}
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 disabled:opacity-50"
+          >
+            <option value="">Select a paper...</option>
+            {papers.map((paper) => (
+              <option key={paper.id} value={paper.id}>
+                {paper.filename} {!paper.has_html && "(not compiled)"}
+              </option>
+            ))}
+          </select>
+          {papers.length === 0 && !loading && (
+            <p className="text-xs text-slate-400 mt-2">No papers yet</p>
+          )}
         </section>
       </div>
 
+      {/* Status/Error */}
       {status && (
-        <div className="max-w-3xl mx-auto mb-6 text-center text-sm text-slate-500">
-          {status}
-        </div>
-      )}
-      {error && (
-        <div className="max-w-3xl mx-auto mb-6 text-center text-sm text-red-500">
-          {error}
+        <div className="max-w-5xl mx-auto mb-4">
+          <div className="flex items-center justify-center gap-2 text-sm text-slate-500">
+            <Loader2 size={16} className="animate-spin" />
+            {status}
+          </div>
         </div>
       )}
 
-      {(content || latexStructure) ? (
-        <MarkdownRenderer
-          content={content}
-          items={items || undefined}
-          paperId={selectedId}
-          latexStructure={latexStructure || undefined}
-        />
+      {error && (
+        <div className="max-w-5xl mx-auto mb-4">
+          <div className="flex items-center justify-center gap-2 text-sm text-red-600 bg-red-50 rounded-lg px-4 py-2">
+            <AlertCircle size={16} />
+            {error}
+          </div>
+        </div>
+      )}
+
+      {/* Paper Actions */}
+      {currentPaper && (
+        <div className="max-w-5xl mx-auto mb-4 flex items-center justify-between">
+          <div className="text-sm text-slate-600">
+            <span className="font-medium">{currentPaper.filename}</span>
+            {currentPaper.arxiv_id && (
+              <span className="ml-2 text-slate-400">
+                (arXiv:{currentPaper.arxiv_id})
+              </span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleRecompile}
+              disabled={loading}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50"
+            >
+              <RefreshCw size={12} />
+              Recompile
+            </button>
+            <button
+              onClick={handleDelete}
+              disabled={loading}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+            >
+              <Trash2 size={12} />
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Content */}
+      {currentPaper?.html_content ? (
+        <div className="max-w-4xl mx-auto bg-white shadow-xl rounded-2xl border border-slate-100 p-8 md:p-12 min-h-[60vh]">
+          <HTMLRenderer
+            html={currentPaper.html_content}
+            paperId={currentPaper.id}
+            tooltips={tooltipMap}
+            onTooltipCreate={createTooltip}
+            onTooltipDelete={deleteTooltip}
+          />
+        </div>
+      ) : currentPaper && !currentPaper.has_html ? (
+        <div className="max-w-4xl mx-auto bg-white shadow-xl rounded-2xl border border-slate-100 p-12 text-center">
+          <div className="text-slate-400 mb-4">
+            <FileText size={48} className="mx-auto opacity-50" />
+          </div>
+          <h3 className="text-lg font-semibold text-slate-700 mb-2">
+            Paper Not Compiled
+          </h3>
+          <p className="text-sm text-slate-500 mb-4">
+            This paper hasn't been compiled to HTML yet.
+          </p>
+          <button
+            onClick={handleRecompile}
+            disabled={loading}
+            className="inline-flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+          >
+            <RefreshCw size={16} />
+            Compile Now
+          </button>
+        </div>
       ) : (
-        <div className="max-w-3xl mx-auto text-center text-sm text-slate-400">
-          Select a file to start reading.
+        <div className="max-w-4xl mx-auto text-center text-sm text-slate-400 py-20">
+          Upload a LaTeX archive or select a paper to start reading
         </div>
       )}
     </main>
