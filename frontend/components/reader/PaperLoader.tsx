@@ -30,6 +30,7 @@ export default function PaperLoader() {
     loading: tooltipsLoading,
     error: tooltipsError,
     createTooltip,
+    updateTooltip,
     deleteTooltip,
   } = useTooltips(selectedPaperId);
 
@@ -263,6 +264,7 @@ export default function PaperLoader() {
             paperId={currentPaper.id}
             tooltips={tooltipMap}
             onTooltipCreate={createTooltip}
+            onTooltipUpdate={updateTooltip}
             onTooltipDelete={deleteTooltip}
           />
         </div>

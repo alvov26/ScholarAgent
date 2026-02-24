@@ -4,12 +4,14 @@ import React from 'react';
 import parse, { Element, domToReact, DOMNode, HTMLReactParserOptions } from 'html-react-parser';
 import { MathJaxNode } from './MathJaxNode';
 import { InteractiveNode } from './InteractiveNode';
+import type { Tooltip } from '@/hooks/useTooltips';
 
 interface HTMLRendererProps {
   html: string;
   paperId: string;
-  tooltips: Record<string, { id: string; content: string }>;
-  onTooltipCreate: (domNodeId: string, content: string) => void;
+  tooltips: Record<string, Tooltip[]>;
+  onTooltipCreate: (domNodeId: string, content: string, targetText?: string) => void;
+  onTooltipUpdate: (tooltipId: string, content: string, targetText?: string) => void;
   onTooltipDelete: (tooltipId: string) => void;
 }
 
@@ -25,6 +27,7 @@ export function HTMLRenderer({
   paperId,
   tooltips,
   onTooltipCreate,
+  onTooltipUpdate,
   onTooltipDelete
 }: HTMLRendererProps) {
 
@@ -47,7 +50,7 @@ export function HTMLRenderer({
       // Handle elements with data-id attribute - make them interactive
       const dataId = domNode.attribs?.['data-id'];
       if (dataId && isInteractiveTag(domNode.name)) {
-        const tooltip = tooltips[dataId];
+        const nodeTooltips = tooltips[dataId] || [];
 
         return (
           <InteractiveNode
@@ -55,9 +58,10 @@ export function HTMLRenderer({
             tag={domNode.name}
             dataId={dataId}
             attributes={domNode.attribs}
-            tooltip={tooltip}
-            onTooltipCreate={(content) => onTooltipCreate(dataId, content)}
-            onTooltipDelete={tooltip ? () => onTooltipDelete(tooltip.id) : undefined}
+            tooltips={nodeTooltips}
+            onTooltipCreate={(content, targetText) => onTooltipCreate(dataId, content, targetText)}
+            onTooltipUpdate={onTooltipUpdate}
+            onTooltipDelete={onTooltipDelete}
           >
             {domToReact(domNode.children as DOMNode[], options)}
           </InteractiveNode>

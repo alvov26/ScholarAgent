@@ -55,10 +55,12 @@ class PaperDetailResponse(PaperResponse):
 
 class TooltipCreate(BaseModel):
     dom_node_id: str
+    target_text: Optional[str] = None
     content: str
 
 
 class TooltipUpdate(BaseModel):
+    target_text: Optional[str] = None
     content: str
 
 
@@ -67,6 +69,7 @@ class TooltipResponse(BaseModel):
     paper_id: str
     dom_node_id: str
     user_id: str
+    target_text: Optional[str] = None
     content: str
     created_at: datetime
     updated_at: datetime
@@ -282,30 +285,17 @@ async def create_tooltip(
     tooltip: TooltipCreate,
     db: Session = Depends(get_db)
 ):
-    """Create a new tooltip anchored to a DOM node."""
+    """Create a new tooltip anchored to a DOM node. Supports multiple annotations per node."""
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
 
-    # Check for existing tooltip on same node
-    existing = db.query(Tooltip).filter(
-        Tooltip.paper_id == paper_id,
-        Tooltip.dom_node_id == tooltip.dom_node_id
-    ).first()
-
-    if existing:
-        # Update existing tooltip
-        existing.content = tooltip.content
-        existing.updated_at = datetime.utcnow()
-        db.commit()
-        db.refresh(existing)
-        return existing
-
-    # Create new tooltip
+    # Create new tooltip (allow multiple per node now)
     new_tooltip = Tooltip(
         id=str(uuid.uuid4()),
         paper_id=paper_id,
         dom_node_id=tooltip.dom_node_id,
+        target_text=tooltip.target_text,
         content=tooltip.content,
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow()
@@ -334,6 +324,8 @@ async def update_tooltip(
     if not existing:
         raise HTTPException(status_code=404, detail="Tooltip not found")
 
+    if tooltip.target_text is not None:
+        existing.target_text = tooltip.target_text
     existing.content = tooltip.content
     existing.updated_at = datetime.utcnow()
     db.commit()

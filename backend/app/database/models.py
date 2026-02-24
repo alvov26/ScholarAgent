@@ -30,6 +30,7 @@ class Tooltip(Base):
     paper_id = Column(String(64), ForeignKey("papers.id", ondelete="CASCADE"), nullable=False)
     dom_node_id = Column(String(128), nullable=False)  # The data-id attribute from HTML
     user_id = Column(String(64), default="default")  # MVP: single user
+    target_text = Column(String(512), nullable=True)  # What symbol/term this annotation explains
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

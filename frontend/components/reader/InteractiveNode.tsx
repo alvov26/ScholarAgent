@@ -3,14 +3,16 @@
 import React, { useState, useRef, useCallback, ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageSquarePlus, X, Pencil, Trash2 } from 'lucide-react';
+import type { Tooltip } from '@/hooks/useTooltips';
 
 interface InteractiveNodeProps {
   tag: string;
   dataId: string;
   attributes: Record<string, string>;
-  tooltip?: { id: string; content: string };
-  onTooltipCreate: (content: string) => void;
-  onTooltipDelete?: () => void;
+  tooltips?: Tooltip[];
+  onTooltipCreate: (content: string, targetText?: string) => void;
+  onTooltipUpdate: (tooltipId: string, content: string, targetText?: string) => void;
+  onTooltipDelete: (tooltipId: string) => void;
   children: ReactNode;
 }
 
@@ -18,21 +20,24 @@ interface InteractiveNodeProps {
  * InteractiveNode - Wrapper component for content nodes that can have tooltips.
  *
  * Renders the original HTML tag with interactive tooltip functionality:
- * - Click to view/create tooltips
+ * - Click to view/create/manage multiple tooltips
  * - Hover highlighting for annotated nodes
+ * - Each tooltip can have a target_text specifying what it annotates
  */
 export function InteractiveNode({
   tag,
   dataId,
   attributes,
-  tooltip,
+  tooltips = [],
   onTooltipCreate,
+  onTooltipUpdate,
   onTooltipDelete,
   children
 }: InteractiveNodeProps) {
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editContent, setEditContent] = useState('');
+  const [isAdding, setIsAdding] = useState(false);
+  const [newTargetText, setNewTargetText] = useState('');
+  const [newContent, setNewContent] = useState('');
   const nodeRef = useRef<HTMLElement | null>(null);
 
   const handleClick = useCallback((e: React.MouseEvent) => {
@@ -42,38 +47,30 @@ export function InteractiveNode({
     }
     e.stopPropagation();
     setIsPopoverOpen(true);
-    setIsEditing(!tooltip); // Start in edit mode if no tooltip exists
-    setEditContent(tooltip?.content || '');
-  }, [tooltip]);
+  }, []);
 
   const handleClose = useCallback(() => {
     setIsPopoverOpen(false);
-    setIsEditing(false);
-    setEditContent('');
+    setIsAdding(false);
+    setNewTargetText('');
+    setNewContent('');
   }, []);
 
-  const handleSave = useCallback(() => {
-    if (editContent.trim()) {
-      onTooltipCreate(editContent.trim());
-      setIsEditing(false);
-      setEditContent('');
-      setIsPopoverOpen(false);
+  const handleAdd = useCallback(() => {
+    if (newContent.trim()) {
+      onTooltipCreate(newContent.trim(), newTargetText.trim() || undefined);
+      setIsAdding(false);
+      setNewTargetText('');
+      setNewContent('');
     }
-  }, [editContent, onTooltipCreate]);
-
-  const handleDelete = useCallback(() => {
-    if (onTooltipDelete) {
-      onTooltipDelete();
-      setIsPopoverOpen(false);
-    }
-  }, [onTooltipDelete]);
+  }, [newContent, newTargetText, onTooltipCreate]);
 
   // Build className
-  const hasTooltip = !!tooltip;
+  const hasTooltips = tooltips.length > 0;
   const className = [
     attributes.class || '',
     'interactive-node',
-    hasTooltip ? 'has-tooltip' : '',
+    hasTooltips ? 'has-tooltip' : '',
     isPopoverOpen ? 'is-active' : ''
   ].filter(Boolean).join(' ');
 
@@ -111,13 +108,16 @@ export function InteractiveNode({
         {isPopoverOpen && (
           <TooltipPopover
             nodeRef={nodeRef}
-            tooltip={tooltip}
-            isEditing={isEditing}
-            editContent={editContent}
-            setEditContent={setEditContent}
-            setIsEditing={setIsEditing}
-            onSave={handleSave}
-            onDelete={handleDelete}
+            tooltips={tooltips}
+            isAdding={isAdding}
+            newTargetText={newTargetText}
+            newContent={newContent}
+            setNewTargetText={setNewTargetText}
+            setNewContent={setNewContent}
+            setIsAdding={setIsAdding}
+            onAdd={handleAdd}
+            onUpdate={onTooltipUpdate}
+            onDelete={onTooltipDelete}
             onClose={handleClose}
           />
         )}
@@ -156,28 +156,37 @@ export function InteractiveNode({
 
 interface TooltipPopoverProps {
   nodeRef: React.RefObject<HTMLElement | null>;
-  tooltip?: { id: string; content: string };
-  isEditing: boolean;
-  editContent: string;
-  setEditContent: (content: string) => void;
-  setIsEditing: (editing: boolean) => void;
-  onSave: () => void;
-  onDelete: () => void;
+  tooltips: Tooltip[];
+  isAdding: boolean;
+  newTargetText: string;
+  newContent: string;
+  setNewTargetText: (text: string) => void;
+  setNewContent: (content: string) => void;
+  setIsAdding: (adding: boolean) => void;
+  onAdd: () => void;
+  onUpdate: (tooltipId: string, content: string, targetText?: string) => void;
+  onDelete: (tooltipId: string) => void;
   onClose: () => void;
 }
 
 function TooltipPopover({
   nodeRef,
-  tooltip,
-  isEditing,
-  editContent,
-  setEditContent,
-  setIsEditing,
-  onSave,
+  tooltips,
+  isAdding,
+  newTargetText,
+  newContent,
+  setNewTargetText,
+  setNewContent,
+  setIsAdding,
+  onAdd,
+  onUpdate,
   onDelete,
   onClose
 }: TooltipPopoverProps) {
   const popoverRef = useRef<HTMLDivElement>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTargetText, setEditTargetText] = useState('');
+  const [editContent, setEditContent] = useState('');
 
   // Calculate position relative to the node
   const rect = nodeRef.current?.getBoundingClientRect();
@@ -187,7 +196,7 @@ function TooltipPopover({
     top: rect ? rect.bottom + 8 : 0,
     left: rect ? rect.left + rect.width / 2 : 0,
     transform: 'translateX(-50%)',
-    maxWidth: '400px',
+    maxWidth: '500px',
     width: '100%'
   };
 
@@ -207,6 +216,25 @@ function TooltipPopover({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [onClose, nodeRef]);
 
+  const startEdit = (tooltip: Tooltip) => {
+    setEditingId(tooltip.id);
+    setEditTargetText(tooltip.target_text || '');
+    setEditContent(tooltip.content);
+  };
+
+  const saveEdit = () => {
+    if (editingId && editContent.trim()) {
+      onUpdate(editingId, editContent.trim(), editTargetText.trim() || undefined);
+      setEditingId(null);
+    }
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditTargetText('');
+    setEditContent('');
+  };
+
   return (
     <motion.div
       ref={popoverRef}
@@ -221,7 +249,7 @@ function TooltipPopover({
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider">
-          {tooltip ? 'Annotation' : 'Add Annotation'}
+          Annotations ({tooltips.length})
         </span>
         <button
           onClick={onClose}
@@ -231,78 +259,122 @@ function TooltipPopover({
         </button>
       </div>
 
-      {/* Content */}
-      {isEditing ? (
-        <div className="space-y-3">
-          <textarea
+      {/* Existing annotations */}
+      {tooltips.length > 0 && (
+        <div className="space-y-2 mb-3 max-h-60 overflow-y-auto">
+          {tooltips.map((tooltip) => (
+            <div key={tooltip.id} className="border border-slate-200 rounded-lg p-3 bg-slate-50/50">
+              {editingId === tooltip.id ? (
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={editTargetText}
+                    onChange={(e) => setEditTargetText(e.target.value)}
+                    placeholder="What are you annotating? (e.g., α_t)"
+                    className="w-full border border-slate-200 rounded-md px-2 py-1 text-xs focus:ring-1 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
+                  />
+                  <textarea
+                    value={editContent}
+                    onChange={(e) => setEditContent(e.target.value)}
+                    placeholder="Explanation..."
+                    className="w-full border border-slate-200 rounded-md p-2 text-sm focus:ring-1 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none resize-none"
+                    rows={3}
+                  />
+                  <div className="flex justify-end gap-1">
+                    <button
+                      onClick={cancelEdit}
+                      className="px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={saveEdit}
+                      disabled={!editContent.trim()}
+                      className="px-3 py-1 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded transition-colors disabled:opacity-50"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {tooltip.target_text && (
+                    <div className="text-xs font-semibold text-indigo-700 mb-1">
+                      {tooltip.target_text}
+                    </div>
+                  )}
+                  <p className="text-sm text-slate-700 leading-relaxed mb-2">
+                    {tooltip.content}
+                  </p>
+                  <div className="flex justify-end gap-1">
+                    <button
+                      onClick={() => startEdit(tooltip)}
+                      className="flex items-center gap-1 px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded transition-colors"
+                    >
+                      <Pencil size={10} />
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => onDelete(tooltip.id)}
+                      className="flex items-center gap-1 px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded transition-colors"
+                    >
+                      <Trash2 size={10} />
+                      Delete
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add new annotation */}
+      {isAdding ? (
+        <div className="space-y-2 border-t border-slate-200 pt-3">
+          <input
             autoFocus
-            value={editContent}
-            onChange={(e) => setEditContent(e.target.value)}
+            type="text"
+            value={newTargetText}
+            onChange={(e) => setNewTargetText(e.target.value)}
+            placeholder="What are you annotating? (e.g., α_t, loss function)"
+            className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
+          />
+          <textarea
+            value={newContent}
+            onChange={(e) => setNewContent(e.target.value)}
             placeholder="Add your notes or explanation..."
-            className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all bg-slate-50/50 text-slate-900 resize-none"
+            className="w-full border border-slate-200 rounded-md p-3 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none resize-none"
             rows={4}
           />
           <div className="flex justify-end gap-2">
             <button
               onClick={() => {
-                if (tooltip) {
-                  setIsEditing(false);
-                  setEditContent(tooltip.content);
-                } else {
-                  onClose();
-                }
+                setIsAdding(false);
+                setNewTargetText('');
+                setNewContent('');
               }}
               className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
             >
               Cancel
             </button>
             <button
-              onClick={onSave}
-              disabled={!editContent.trim()}
+              onClick={onAdd}
+              disabled={!newContent.trim()}
               className="px-4 py-1.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Save
-            </button>
-          </div>
-        </div>
-      ) : tooltip ? (
-        <div className="space-y-3">
-          <p className="text-sm text-slate-700 leading-relaxed">
-            {tooltip.content}
-          </p>
-          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-            <button
-              onClick={() => {
-                setIsEditing(true);
-                setEditContent(tooltip.content);
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-            >
-              <Pencil size={12} />
-              Edit
-            </button>
-            <button
-              onClick={onDelete}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-            >
-              <Trash2 size={12} />
-              Delete
+              Add
             </button>
           </div>
         </div>
       ) : (
-        <div className="text-center py-4">
-          <p className="text-sm text-slate-500 mb-3">
-            No annotation for this section yet.
-          </p>
-          <button
-            onClick={() => setIsEditing(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
-          >
-            <MessageSquarePlus size={16} />
-            Add Annotation
-          </button>
-        </div>
+        <button
+          onClick={() => setIsAdding(true)}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 border border-indigo-200 rounded-lg transition-colors"
+        >
+          <MessageSquarePlus size={16} />
+          Add Annotation
+        </button>
       )}
     </motion.div>
   );

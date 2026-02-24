@@ -8,13 +8,14 @@ export interface Tooltip {
   paper_id: string;
   dom_node_id: string;
   user_id: string;
+  target_text?: string | null;
   content: string;
   created_at: string;
   updated_at: string;
 }
 
 export interface TooltipMap {
-  [domNodeId: string]: { id: string; content: string };
+  [domNodeId: string]: Tooltip[];
 }
 
 export function useTooltips(paperId: string | null) {
@@ -23,11 +24,14 @@ export function useTooltips(paperId: string | null) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Build a map of dom_node_id -> tooltip for easy lookup
+  // Build a map of dom_node_id -> tooltips[] for easy lookup
   useEffect(() => {
     const map: TooltipMap = {};
     tooltips.forEach(t => {
-      map[t.dom_node_id] = { id: t.id, content: t.content };
+      if (!map[t.dom_node_id]) {
+        map[t.dom_node_id] = [];
+      }
+      map[t.dom_node_id].push(t);
     });
     setTooltipMap(map);
   }, [tooltips]);
@@ -58,7 +62,8 @@ export function useTooltips(paperId: string | null) {
 
   const createTooltip = useCallback(async (
     domNodeId: string,
-    content: string
+    content: string,
+    targetText?: string
   ): Promise<Tooltip | null> => {
     if (!paperId) return null;
 
@@ -68,7 +73,11 @@ export function useTooltips(paperId: string | null) {
       const response = await fetch(`${API_BASE}/api/papers/${paperId}/tooltips`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dom_node_id: domNodeId, content }),
+        body: JSON.stringify({
+          dom_node_id: domNodeId,
+          content,
+          target_text: targetText || null
+        }),
       });
 
       if (!response.ok) {
@@ -78,17 +87,8 @@ export function useTooltips(paperId: string | null) {
 
       const newTooltip = await response.json();
 
-      // Update local state
-      setTooltips(prev => {
-        // Replace if same dom_node_id exists, otherwise add
-        const existing = prev.findIndex(t => t.dom_node_id === domNodeId);
-        if (existing >= 0) {
-          const updated = [...prev];
-          updated[existing] = newTooltip;
-          return updated;
-        }
-        return [...prev, newTooltip];
-      });
+      // Update local state - always add (support multiple per node)
+      setTooltips(prev => [...prev, newTooltip]);
 
       return newTooltip;
     } catch (err: any) {
@@ -101,7 +101,8 @@ export function useTooltips(paperId: string | null) {
 
   const updateTooltip = useCallback(async (
     tooltipId: string,
-    content: string
+    content: string,
+    targetText?: string
   ): Promise<Tooltip | null> => {
     if (!paperId) return null;
 
@@ -111,7 +112,10 @@ export function useTooltips(paperId: string | null) {
       const response = await fetch(`${API_BASE}/api/papers/${paperId}/tooltips/${tooltipId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({
+          content,
+          target_text: targetText
+        }),
       });
 
       if (!response.ok) {
