@@ -23,7 +23,7 @@ class TexParser:
                     extra_args.append("--citeproc")
                     for bib in bib_files:
                         extra_args.append(f"--bibliography={bib}")
-                return pypandoc.convert_file(file_path, "gfm", format="latex", extra_args=extra_args)
+                return pypandoc.convert_file(file_path, "markdown", format="latex", extra_args=extra_args)
             except RuntimeError:
                 pass
 

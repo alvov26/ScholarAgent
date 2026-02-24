@@ -18,6 +18,7 @@ export default function PaperLoader() {
   const [selectedType, setSelectedType] = useState<PaperMeta["type"] | null>(null);
   const [content, setContent] = useState<string>("");
   const [items, setItems] = useState<any[] | null>(null);
+  const [latexStructure, setLatexStructure] = useState<any>(null);
   const [status, setStatus] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [arxivLink, setArxivLink] = useState<string>("");
@@ -40,8 +41,31 @@ export default function PaperLoader() {
     setError("");
     setContent("");
     setItems(null);
+    setLatexStructure(null);
 
     try {
+      // Try to fetch structured LaTeX first for .tex files
+      if (type === "tex") {
+        try {
+          console.log(`Fetching structured LaTeX for paper ${paperId}`);
+          const latexRes = await fetch(`${API_BASE}/paper/${paperId}/latex`, { cache: "no-store" });
+          console.log(`LaTeX fetch response status: ${latexRes.status}`);
+          if (latexRes.ok) {
+            const latexData = await latexRes.json();
+            console.log(`Loaded structured LaTeX with ${latexData.sections?.length || 0} sections`);
+            setLatexStructure(latexData);
+            setStatus("");
+            return; // Use LaTeX structure, skip markdown
+          } else {
+            console.log(`LaTeX fetch failed: ${latexRes.statusText}`);
+          }
+        } catch (latexErr) {
+          console.error("Error fetching structured LaTeX:", latexErr);
+          console.log("Falling back to markdown");
+        }
+      }
+
+      // Fallback to markdown
       const mdRes = await fetch(`${API_BASE}/paper/${paperId}/markdown`, { cache: "no-store" });
       if (!mdRes.ok) {
         throw new Error("Failed to fetch markdown");
@@ -193,6 +217,40 @@ export default function PaperLoader() {
     await loadPaper(selectedId, selectedType);
   };
 
+  const handleDeleteCached = async () => {
+    if (!selectedId) {
+      setError("Select a cached paper first");
+      return;
+    }
+
+    if (!confirm("Are you sure you want to delete this cached paper? This will remove all associated files.")) {
+      return;
+    }
+
+    setStatus("Deleting paper...");
+    setError("");
+
+    try {
+      const res = await fetch(`${API_BASE}/paper/${selectedId}`, { method: "DELETE" });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        throw new Error(detail.detail || "Delete failed");
+      }
+
+      // Clear selection and reload list
+      setSelectedId("");
+      setSelectedType(null);
+      setContent("");
+      setItems(null);
+      setLatexStructure(null);
+      await loadPapers();
+      setStatus("");
+    } catch (err: any) {
+      setError(err.message || "Delete failed");
+      setStatus("");
+    }
+  };
+
   return (
     <main className="min-h-screen bg-slate-50 py-12 px-4">
       <div className="max-w-5xl mx-auto mb-10 text-center">
@@ -261,6 +319,14 @@ export default function PaperLoader() {
               className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors"
             >
               Load
+            </button>
+            <button
+              onClick={handleDeleteCached}
+              disabled={!selectedId}
+              className="bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Delete cached paper"
+            >
+              Delete
             </button>
           </div>
           {papers.length === 0 && (
@@ -338,8 +404,13 @@ export default function PaperLoader() {
         </div>
       )}
 
-      {content ? (
-        <MarkdownRenderer content={content} items={items || undefined} paperId={selectedId} />
+      {(content || latexStructure) ? (
+        <MarkdownRenderer
+          content={content}
+          items={items || undefined}
+          paperId={selectedId}
+          latexStructure={latexStructure || undefined}
+        />
       ) : (
         <div className="max-w-3xl mx-auto text-center text-sm text-slate-400">
           Select a file to start reading.

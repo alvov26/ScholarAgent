@@ -7,11 +7,37 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeRaw from 'rehype-raw';
-import rehypeMathjaxBrowser from 'rehype-mathjax/browser';
 import RenderingErrorBoundary from './RenderingErrorBoundary';
+import { LatexSectionRenderer } from './LatexConverter';
 
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+
+const MathComponent = ({ value, children, display }: { value?: string; children?: any; display: boolean }) => {
+  const ref = useRef<HTMLSpanElement>(null);
+  const mathValue = value || (Array.isArray(children) ? children[0] : children) || '';
+
+  useEffect(() => {
+    if (ref.current && (window as any).MathJax) {
+      try {
+        (window as any).MathJax.typesetPromise([ref.current]);
+      } catch (err) {
+        console.error('MathJax typeset failed:', err);
+      }
+    }
+  }, [mathValue, display]);
+
+  const Tag = display ? 'div' : 'span';
+  const delimiters = display ? ['$$', '$$'] : ['$', '$'];
+
+  return (
+    <Tag
+      ref={ref as any}
+      className={display ? 'math-display my-4 overflow-x-auto text-center' : 'math-inline'}
+      dangerouslySetInnerHTML={{ __html: delimiters[0] + mathValue + delimiters[1] }}
+    />
+  );
+};
 
 const unescapeHtml = (text: string) => {
   return text
@@ -113,12 +139,6 @@ const MemoizedMarkdownItem = React.memo(({ item, index, showPageMarker, componen
             remarkPlugins={[remarkGfm, remarkMath]}
             rehypePlugins={[
               rehypeRaw,
-              [rehypeMathjaxBrowser, {
-                tex: {
-                  inlineMath: [['$', '$'], ['\\(', '\\)']],
-                  displayMath: [['$$', '$$'], ['\\[', '\\]']]
-                }
-              }]
             ]}
             components={components}
           >
@@ -195,6 +215,11 @@ interface MarkdownRendererProps {
   content?: string;
   items?: any[];
   paperId?: string;
+  latexStructure?: {
+    format: 'latex';
+    sections: any[];
+    math_catalog?: any[];
+  };
 }
 
 // 1. Memoized Markdown Content
@@ -233,12 +258,6 @@ const MarkdownContent = React.memo(({ items, content, components, onMouseUp, too
             remarkPlugins={[remarkGfm, remarkMath]}
             rehypePlugins={[
               rehypeRaw,
-              [rehypeMathjaxBrowser, {
-                tex: {
-                  inlineMath: [['$', '$'], ['\\(', '\\)']],
-                  displayMath: [['$$', '$$'], ['\\[', '\\]']]
-                }
-              }]
             ]}
             components={components}
           >
@@ -305,7 +324,7 @@ const AddTooltipPanel = React.forwardRef(({ activeTerm, onClose, onSave }: any, 
   );
 });
 
-export default function MarkdownRenderer({ content, items, paperId }: MarkdownRendererProps) {
+export default function MarkdownRenderer({ content, items, paperId, latexStructure }: MarkdownRendererProps) {
   const [tooltips, setTooltips] = useState<Tooltip[]>([]);
   const [activeTerm, setActiveTerm] = useState<{ 
     text: string; 
@@ -322,8 +341,6 @@ export default function MarkdownRenderer({ content, items, paperId }: MarkdownRe
     rect: { top: number; bottom: number; left: number; width: number } | null
   } | null>(null);
   const [isAddingTooltip, setIsAddingTooltip] = useState(false);
-  
-  const [isMathJaxReady, setIsMathJaxReady] = useState(false);
   
   const viewPanelRef = useRef<HTMLDivElement>(null);
   const editPanelRef = useRef<HTMLDivElement>(null);
@@ -347,31 +364,6 @@ export default function MarkdownRenderer({ content, items, paperId }: MarkdownRe
     }
   }, [paperId]);
 
-  useEffect(() => {
-    const checkReady = () => {
-      if ((window as any).MathJax && (window as any).MathJax.typesetPromise) {
-        setIsMathJaxReady(true);
-      }
-    };
-
-    checkReady();
-    window.addEventListener('MathJaxReady', checkReady);
-    return () => window.removeEventListener('MathJaxReady', checkReady);
-  }, []);
-
-  useEffect(() => {
-    // Typeset math when content or tooltips change, or when MathJax becomes ready
-    if (isMathJaxReady && (window as any).MathJax && (window as any).MathJax.typesetPromise && containerRef.current) {
-      const MJ = (window as any).MathJax;
-      try {
-        if (MJ.typesetClear) MJ.typesetClear([containerRef.current]);
-        if (MJ.texReset) MJ.texReset();
-        MJ.typesetPromise([containerRef.current]).catch((err: any) => console.error('MathJax typeset failed:', err));
-      } catch (err) {
-        console.error('MathJax operation failed:', err);
-      }
-    }
-  }, [content, items, tooltips, isMathJaxReady]);
 
 
   const matchingTooltips = useMemo(() => {
@@ -424,6 +416,8 @@ export default function MarkdownRenderer({ content, items, paperId }: MarkdownRe
   }, []);
 
   const components = useMemo(() => ({
+    math: (props: any) => <MathComponent {...props} display={true} />,
+    inlineMath: (props: any) => <MathComponent {...props} display={false} />,
     span: ({ node, className, children, ...props }: any) => {
       if (className === 'paper-tooltip') {
         return (
@@ -558,9 +552,44 @@ export default function MarkdownRenderer({ content, items, paperId }: MarkdownRe
     }
   }, []);
 
+  // Render LaTeX structure if available
+  const renderContent = () => {
+    if (latexStructure && latexStructure.format === 'latex') {
+      console.log('[MarkdownRenderer] Rendering LaTeX structure with', latexStructure.sections?.length, 'sections');
+      return (
+        <>
+          <div className="bg-green-50 border border-green-200 rounded-lg p-2 mb-4 text-xs text-green-700">
+            ✓ Rendering native LaTeX structure ({latexStructure.sections?.length} sections, {latexStructure.math_catalog?.length} math expressions)
+          </div>
+          <div className="latex-document prose prose-slate prose-indigo max-w-none">
+            {latexStructure.sections.map((section, idx) => (
+              <LatexSectionRenderer key={idx} section={section} />
+            ))}
+          </div>
+        </>
+      );
+    }
+
+    console.log('[MarkdownRenderer] Rendering markdown content');
+    return (
+      <>
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 mb-4 text-xs text-blue-700">
+          ℹ Rendering markdown format
+        </div>
+        <MarkdownContent
+          items={items}
+          content={content}
+          components={components}
+          onMouseUp={handleMouseUp}
+          tooltips={tooltips}
+        />
+      </>
+    );
+  };
+
   return (
-    <div 
-      className="relative max-w-4xl mx-auto p-12 bg-white shadow-xl rounded-2xl min-h-[80vh] border border-slate-100 mjx-process" 
+    <div
+      className="relative max-w-4xl mx-auto p-12 bg-white shadow-xl rounded-2xl min-h-[80vh] border border-slate-100 mjx-process"
       ref={containerRef}
       onContextMenu={handleContextMenu}
       onClick={handleMathClick}
@@ -614,13 +643,7 @@ export default function MarkdownRenderer({ content, items, paperId }: MarkdownRe
         }
       `}</style>
 
-      <MarkdownContent 
-        items={items} 
-        content={content} 
-        components={components} 
-        onMouseUp={handleMouseUp} 
-        tooltips={tooltips}
-      />
+      {renderContent()}
 
       <AnimatePresence>
         {selection && (

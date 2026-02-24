@@ -30,13 +30,20 @@ export default function RootLayout({
                   settings: {
                     assistiveMml: false
                   }
+                },
+                enableEnrichment: true,
+                renderActions: {
+                  addMenu: []
                 }
+              },
+              chtml: {
+                fontURL: 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2'
               },
               startup: {
                 pageReady: () => {
                   return window.MathJax.startup.defaultPageReady().then(() => {
                     console.log('MathJax fully loaded, version:', window.MathJax.version);
-                    console.log('typesetPromise available:', typeof window.MathJax.typesetPromise);
+                    console.log('Semantic enrichment enabled:', window.MathJax.config.options.enableEnrichment);
                     window.dispatchEvent(new CustomEvent('MathJaxReady'));
                   });
                 }
@@ -45,7 +52,7 @@ export default function RootLayout({
           `}
         </Script>
         <Script
-          src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"
+          src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js"
           id="MathJax-script"
           strategy="afterInteractive"
         />
