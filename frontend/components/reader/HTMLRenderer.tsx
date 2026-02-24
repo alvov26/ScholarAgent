@@ -110,6 +110,9 @@ export function HTMLRenderer({
           width: 100%;
           border-collapse: collapse;
           margin: 1.5em 0;
+          display: table !important;
+          position: relative !important;
+          clear: both;
         }
 
         .html-renderer th,
@@ -122,6 +125,34 @@ export function HTMLRenderer({
         .html-renderer th {
           background-color: #f8fafc;
           font-weight: 600;
+        }
+
+        /* Fix LaTeXML table containers */
+        .html-renderer .ltx_table,
+        .html-renderer .ltx_tabular,
+        .html-renderer div.ltx_table {
+          display: block;
+          position: relative;
+          clear: both;
+          margin: 1.5em 0;
+          overflow: visible;
+        }
+
+        .html-renderer .ltx_table table {
+          position: static !important;
+        }
+
+        /* Fix LaTeXML inline-block transformed tables with fixed heights */
+        .html-renderer .ltx_table .ltx_inline-block.ltx_transformed_outer {
+          height: auto !important;
+          vertical-align: baseline !important;
+          display: block !important;
+          width: 100% !important;
+        }
+
+        .html-renderer .ltx_table .ltx_transformed_inner {
+          transform: none !important;
+          display: block !important;
         }
 
         .html-renderer blockquote {
