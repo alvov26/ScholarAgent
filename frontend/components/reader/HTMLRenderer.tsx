@@ -212,6 +212,18 @@ export function HTMLRenderer({
         }
 
         /* LaTeXML specific styles */
+        .html-renderer .ltx_font_bold {
+          font-weight: 700;
+        }
+
+        .html-renderer .ltx_font_italic {
+          font-style: italic;
+        }
+
+        .html-renderer .ltx_font_typewriter {
+          font-family: ui-monospace, monospace;
+        }
+
         .html-renderer .ltx_theorem {
           background-color: #f8fafc;
           border-left: 4px solid #6366f1;
