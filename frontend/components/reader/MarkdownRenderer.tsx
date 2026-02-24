@@ -641,6 +641,21 @@ export default function MarkdownRenderer({ content, items, paperId, latexStructu
           padding: 2px;
           transition: all 0.2s;
         }
+
+        /* Force inline math to stay inline */
+        .math-inline mjx-container {
+          display: inline !important;
+          margin: 0 !important;
+        }
+
+        .math-inline {
+          display: inline !important;
+        }
+
+        /* Ensure display math is block */
+        .math-display mjx-container {
+          display: block !important;
+        }
       `}</style>
 
       {renderContent()}

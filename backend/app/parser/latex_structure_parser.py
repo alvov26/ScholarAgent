@@ -166,6 +166,21 @@ class LatexStructureParser:
                 # For delimiters, extract content from group 1
                 math_content = earliest_match.group(1).strip()
 
+            # Remove LaTeX comments from math content
+            # Comments in LaTeX are % to end of line (but not \%)
+            math_content_lines = []
+            for line in math_content.split('\n'):
+                # Remove everything after % (but not \%)
+                line = re.sub(r'(?<!\\)%.*$', '', line)
+                if line.strip():
+                    math_content_lines.append(line)
+            math_content = '\n'.join(math_content_lines).strip()
+
+            # Skip empty math blocks (e.g., equation environments with only comments)
+            if not math_content:
+                position = position + earliest_match.end()
+                continue
+
             blocks.append({
                 "type": "math",
                 "content": math_content,
