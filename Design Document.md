@@ -6,6 +6,10 @@
 ## Features
 
 Must:
+- Robust in-formula selection: Precise, node-based symbol selection using MathJax 4 semantic enrichment.
+	- Users can click on individual symbols or sub-expressions within a formula.
+	- Selection is powered by the MathJax Semantic Tree (SRE), ensuring logical consistency (e.g., selecting the entire superscript or a specific variable).
+	- Selected symbols can be used as input for agent annotations or manual tooltips.
 - Automatic tooltips to terms and math symbols, persistent across the document, editable by the user
 	- Symbol Glossary Agent: scan LaTeX blocks to build a "Project Glossary" with context-aware resolution (link back to definition source)
 	- Should also be able to enhance / deepen or shorten the tooltip
@@ -41,7 +45,8 @@ Won't:
 		- Framework: Next.js
 		- Markdown Renderer: `react-markdown`
 			- Interactive tooltips using `Framer Motion` (via `[[Term]]` syntax)
-		- Math Renderer: `KaTeX`
+		- Math Renderer: `MathJax 4` (with Semantic Enrichment for precise selection)
+		- Dependencies: `react-markdown`, `remark-math`, `rehype-mathjax`, `mathjax-full`, `framer-motion`
 	- Backend
 		- Server: FastAPI
 		- RAG Hierarchy: LlamaIndex (`PropertyGraphIndex` for Graph-RAG)
