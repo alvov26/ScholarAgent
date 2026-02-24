@@ -4,6 +4,7 @@ import React, { useState, useRef, useCallback, ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageSquarePlus, X, Pencil, Trash2 } from 'lucide-react';
 import type { Tooltip } from '@/hooks/useTooltips';
+import { LatexText } from './LatexText';
 
 interface InteractiveNodeProps {
   tag: string;
@@ -316,15 +317,17 @@ function TooltipPopover({
                   </div>
                   {tooltip.target_text && (
                     <>
-                      <div className="text-sm font-semibold text-indigo-700 mb-2 pr-24 break-words">
-                        {tooltip.target_text}
-                      </div>
+                      <LatexText
+                        text={tooltip.target_text}
+                        className="text-sm font-semibold text-indigo-700 mb-2 pr-24 break-words"
+                      />
                       <div className="border-t border-slate-200 mb-2"></div>
                     </>
                   )}
-                  <p className="text-sm text-slate-700 leading-relaxed break-words">
-                    {tooltip.content}
-                  </p>
+                  <LatexText
+                    text={tooltip.content}
+                    className="text-sm text-slate-700 leading-relaxed break-words"
+                  />
                 </div>
               )}
             </div>

@@ -58,7 +58,7 @@ export default function RootLayout({
           `}
         </Script>
         <Script
-          src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/mml-chtml.js"
+          src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"
           id="MathJax-script"
           strategy="afterInteractive"
         />
