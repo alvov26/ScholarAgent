@@ -127,7 +127,7 @@ class LaTeXMLCompiler:
     Supports both Docker-based compilation (engrafo) and local latexml installation.
     """
 
-    def __init__(self, use_docker: bool = True, docker_image: str = "latexml/latexml"):
+    def __init__(self, use_docker: bool = True, docker_image: str = "latexml/ar5ivist"):
         self.use_docker = use_docker
         self.docker_image = docker_image
 
@@ -230,43 +230,42 @@ class LaTeXMLCompiler:
         return max(tex_files, key=score_tex)
 
     def _compile_with_docker(self, source_dir: Path, main_tex: Path, output_dir: Path) -> str:
-        """Compile using Docker (latexml image)."""
+        """Compile using Docker (latexml/ar5ivist with latexmlc)."""
         relative_tex = main_tex.relative_to(source_dir)
-        output_xml = output_dir / "output.xml"
         output_html = output_dir / "output.html"
 
-        # Run latexml (LaTeX -> XML)
-        latexml_cmd = [
+        # Run latexmlc (one-step LaTeX -> HTML5)
+        # Note: ar5ivist image has latexmlc as entrypoint, so we just pass args
+        cmd = [
             "docker", "run", "--rm",
             "-v", f"{source_dir}:/source:ro",
             "-v", f"{output_dir}:/output",
             self.docker_image,
-            "latexml",
-            "--dest=/output/output.xml",
-            f"/source/{relative_tex}"
-        ]
-
-        result = subprocess.run(latexml_cmd, capture_output=True, text=True, timeout=300)
-        if result.returncode != 0:
-            raise RuntimeError(f"latexml failed: {result.stderr}")
-
-        # Run latexmlpost (XML -> HTML5)
-        latexmlpost_cmd = [
-            "docker", "run", "--rm",
-            "-v", f"{output_dir}:/output",
-            self.docker_image,
-            "latexmlpost",
+            f"/source/{relative_tex}",
             "--dest=/output/output.html",
             "--format=html5",
-            "--mathml",
-            "/output/output.xml"
+            "--pmml",  # Presentation MathML
+            "--cmml",  # Content MathML
         ]
 
-        result = subprocess.run(latexmlpost_cmd, capture_output=True, text=True, timeout=300)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         if result.returncode != 0:
-            raise RuntimeError(f"latexmlpost failed: {result.stderr}")
+            raise RuntimeError(f"latexmlc failed: {result.stderr}\n{result.stdout}")
 
-        return output_html.read_text(encoding="utf-8")
+        html = output_html.read_text(encoding="utf-8")
+
+        # Extract body content only (LaTeXML outputs full HTML document)
+        return self._extract_body(html)
+
+    def _extract_body(self, html: str) -> str:
+        """Extract content from <body> tag, stripping document wrapper."""
+        import re
+        # Match body content (non-greedy)
+        match = re.search(r'<body[^>]*>(.*?)</body>', html, re.DOTALL | re.IGNORECASE)
+        if match:
+            return match.group(1)
+        # Fallback: return as-is if no body tag found
+        return html
 
     def _compile_locally(self, source_dir: Path, main_tex: Path, output_dir: Path) -> str:
         """Compile using local latexml installation."""
@@ -303,7 +302,8 @@ class LaTeXMLCompiler:
         if result.returncode != 0:
             raise RuntimeError(f"latexmlpost failed: {result.stderr}")
 
-        return output_html.read_text(encoding="utf-8")
+        html = output_html.read_text(encoding="utf-8")
+        return self._extract_body(html)
 
 
 # Convenience function for API usage

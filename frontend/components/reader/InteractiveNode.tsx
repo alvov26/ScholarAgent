@@ -77,8 +77,21 @@ export function InteractiveNode({
     isPopoverOpen ? 'is-active' : ''
   ].filter(Boolean).join(' ');
 
-  // Filter out attributes we handle specially
-  const { class: _, 'data-id': __, ...restAttribs } = attributes;
+  // Filter out attributes we handle specially and convert style string to object
+  const { class: _, 'data-id': __, style, ...restAttribs } = attributes;
+
+  // Parse style string to object if present
+  const styleObj = style && typeof style === 'string'
+    ? style.split(';').reduce((acc, rule) => {
+        const [key, value] = rule.split(':').map(s => s.trim());
+        if (key && value) {
+          // Convert kebab-case to camelCase
+          const camelKey = key.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
+          acc[camelKey] = value;
+        }
+        return acc;
+      }, {} as Record<string, string>)
+    : style;
 
   // Create element props
   const elementProps = {
@@ -87,6 +100,7 @@ export function InteractiveNode({
     'data-id': dataId,
     className,
     onClick: handleClick,
+    ...(styleObj && { style: styleObj }),
   };
 
   return (
