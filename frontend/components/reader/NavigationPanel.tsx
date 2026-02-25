@@ -1,6 +1,19 @@
 'use client';
 
-export default function NavigationPanel() {
+import TableOfContents from './TableOfContents';
+import type { TOCNode } from '@/utils/parseTOC';
+
+interface NavigationPanelProps {
+  toc: TOCNode[];
+  onNavigate?: (id: string) => void;
+  currentSectionId?: string | null;
+}
+
+export default function NavigationPanel({
+  toc,
+  onNavigate,
+  currentSectionId,
+}: NavigationPanelProps) {
   return (
     <div className="space-y-3">
       {/* Header */}
@@ -10,10 +23,12 @@ export default function NavigationPanel() {
         </h2>
       </div>
 
-      {/* Placeholder - will be replaced with actual TOC */}
-      <div className="bg-slate-50 rounded-lg border border-slate-200 p-4 shadow-sm">
-        <p className="text-sm text-slate-500">Table of contents will appear here</p>
-      </div>
+      {/* Table of Contents */}
+      <TableOfContents
+        nodes={toc}
+        onNavigate={onNavigate}
+        currentSectionId={currentSectionId}
+      />
     </div>
   );
 }

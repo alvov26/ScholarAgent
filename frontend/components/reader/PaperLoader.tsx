@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { usePapers, Paper, PaperDetail } from "@/hooks/usePapers";
 import { useTooltips } from "@/hooks/useTooltips";
 import { HTMLRenderer } from "./HTMLRenderer";
 import ResizableLayout from "./ResizableLayout";
 import NavigationPanel from "./NavigationPanel";
 import TooltipPanel from "./TooltipPanel";
+import { parseTOC } from "@/utils/parseTOC";
 import { Loader2, Upload, ExternalLink, Trash2, RefreshCw, FileText, AlertCircle } from "lucide-react";
 
 export default function PaperLoader() {
@@ -116,8 +117,33 @@ export default function PaperLoader() {
   const error = papersError || tooltipsError;
   const loading = papersLoading || tooltipsLoading || !!status;
 
+  // Parse TOC from current paper
+  const toc = useMemo(() => {
+    if (!currentPaper?.html_content) return [];
+    return parseTOC(currentPaper.html_content);
+  }, [currentPaper?.html_content]);
+
+  // Handle navigation to section
+  const handleNavigate = useCallback((dataId: string) => {
+    const element = document.querySelector(`[data-id="${dataId}"]`);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+      // Add flash effect
+      element.classList.add('toc-flash');
+      setTimeout(() => {
+        element.classList.remove('toc-flash');
+      }, 1500);
+    }
+  }, []);
+
   // Left panel content
-  const leftPanel = <NavigationPanel />;
+  const leftPanel = (
+    <NavigationPanel
+      toc={toc}
+      onNavigate={handleNavigate}
+    />
+  );
 
   // Main panel content
   const mainPanel = (
