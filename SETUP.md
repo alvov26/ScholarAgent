@@ -72,7 +72,28 @@ cd ..
 
 ### 4. PostgreSQL Setup
 
-#### Start PostgreSQL service
+#### Option A: Docker (Recommended)
+```bash
+# Start PostgreSQL in Docker
+docker run -d \
+  --name scholaragent-db \
+  -e POSTGRES_DB=scholaragent \
+  -e POSTGRES_USER=scholaragent \
+  -e POSTGRES_PASSWORD=scholaragent \
+  -p 5432:5432 \
+  -v scholaragent-db-data:/var/lib/postgresql/data \
+  postgres:16
+
+# Verify it's running
+docker ps | grep scholaragent-db
+```
+
+After reboot, restart the container:
+```bash
+docker start scholaragent-db
+```
+
+#### Option B: System PostgreSQL
 ```bash
 # Linux
 sudo systemctl start postgresql
@@ -80,16 +101,11 @@ sudo systemctl enable postgresql
 
 # macOS
 brew services start postgresql
-```
 
-#### Create database and user
-```bash
-# Switch to postgres user
+# Create database and user
 sudo -u postgres psql
-
-# In psql shell:
 CREATE DATABASE scholaragent;
-CREATE USER scholaragent WITH PASSWORD 'your_secure_password';
+CREATE USER scholaragent WITH PASSWORD 'scholaragent';
 GRANT ALL PRIVILEGES ON DATABASE scholaragent TO scholaragent;
 \q
 ```
@@ -102,8 +118,7 @@ cp .env.example .env
 
 Edit `.env`:
 ```
-DATABASE_URL=postgresql://scholaragent:your_secure_password@localhost/scholaragent
-LLAMA_CLOUD_API_KEY=your_key_here  # DEPRECATED - will be removed
+DATABASE_URL=postgresql://scholaragent:scholaragent@localhost/scholaragent
 ```
 
 ### 5. Database Migrations
@@ -125,21 +140,27 @@ cd ..
 
 ### 6. Docker Setup for LaTeXML
 
-#### Pull LaTeXML image
+#### Pull LaTeXML image (ar5ivist - official arXiv converter)
 ```bash
-# Option 1: Engrafo (arxiv-vanity)
-docker pull arxivvanity/engrafo
-
-# Option 2: Official LaTeXML
-docker pull ghcr.io/brucemiller/latexml
+docker pull latexml/ar5ivist
 ```
 
-#### Test LaTeXML
+#### Test LaTeXML (optional)
 ```bash
-# Test with sample .tex file
-docker run --rm -v $(pwd)/input:/input arxivvanity/engrafo \
-  latexml /input/test_paper.tex --dest=/input/output.xml
+# Test with a sample .tex file
+# ar5ivist has latexmlc as entrypoint, so no need to specify it
+docker run --rm \
+  -v $(pwd)/test:/source:ro \
+  -v $(pwd)/output:/output \
+  latexml/ar5ivist \
+  /source/test.tex \
+  --dest=/output/output.html \
+  --format=html5 \
+  --pmml \
+  --cmml
 ```
+
+**Note**: The application will automatically use this Docker image for compiling LaTeX papers.
 
 ---
 
@@ -255,13 +276,14 @@ export PATH="$HOME/.local/bin:$PATH"
 ### Issue: PostgreSQL connection refused
 **Solution**:
 ```bash
-# Check if service is running
+# If using Docker:
+docker ps | grep scholaragent-db  # Check if running
+docker start scholaragent-db       # Start if stopped
+docker logs scholaragent-db        # Check for errors
+
+# If using system PostgreSQL:
 sudo systemctl status postgresql
-
-# Start if not running
 sudo systemctl start postgresql
-
-# Check if database exists
 psql -U postgres -l | grep scholaragent
 ```
 
@@ -407,10 +429,19 @@ cd backend && alembic upgrade head
 docker ps
 
 # View container logs
+docker logs scholaragent-db
 docker logs <container_id>
+
+# Start/stop database
+docker start scholaragent-db
+docker stop scholaragent-db
 
 # Clean up unused images
 docker system prune -a
+
+# Remove database (WARNING: deletes all data)
+docker rm -f scholaragent-db
+docker volume rm scholaragent-db-data
 ```
 
 ### Python
@@ -477,6 +508,13 @@ pg_dump -U scholaragent scholaragent > ~/backups/scholaragent_$(date +%Y%m%d).sq
 
 ### Docker Image Updates
 ```bash
-docker pull arxivvanity/engrafo
-# Restart services
+# Update LaTeXML
+docker pull latexml/ar5ivist
+
+# Update PostgreSQL (backup first!)
+pg_dump -U scholaragent scholaragent > backup.sql
+docker stop scholaragent-db
+docker rm scholaragent-db
+docker pull postgres:16
+# Re-run PostgreSQL setup from section 4
 ```
