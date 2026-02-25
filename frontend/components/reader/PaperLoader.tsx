@@ -137,6 +137,27 @@ export default function PaperLoader() {
     }
   }, []);
 
+  // Handle tooltip edit from panel
+  const handleTooltipEdit = useCallback((tooltip: any) => {
+    // TODO: Open edit modal/form
+    // For now, use a simple prompt
+    const newContent = prompt('Edit tooltip content:', tooltip.content);
+    if (newContent !== null && newContent.trim()) {
+      updateTooltip(tooltip.id, newContent.trim(), tooltip.target_text);
+    }
+  }, [updateTooltip]);
+
+  // Handle tooltip pin (placeholder until we add DB field)
+  const handleTooltipPin = useCallback((tooltipId: string) => {
+    // TODO: Implement pinning once is_pinned field is added
+    console.log('Pin tooltip:', tooltipId);
+  }, []);
+
+  // Get all tooltips as flat array
+  const allTooltips = useMemo(() => {
+    return Object.values(tooltipMap).flat();
+  }, [tooltipMap]);
+
   // Left panel content
   const leftPanel = (
     <NavigationPanel
@@ -330,7 +351,16 @@ export default function PaperLoader() {
   );
 
   // Right panel content
-  const rightPanel = <TooltipPanel />;
+  const rightPanel = (
+    <TooltipPanel
+      tooltips={allTooltips}
+      toc={toc}
+      onEdit={handleTooltipEdit}
+      onDelete={deleteTooltip}
+      onPin={handleTooltipPin}
+      onNavigate={handleNavigate}
+    />
+  );
 
   return (
     <ResizableLayout

@@ -1,6 +1,26 @@
 'use client';
 
-export default function TooltipPanel() {
+import type { Tooltip } from '@/hooks/useTooltips';
+import type { TOCNode } from '@/utils/parseTOC';
+import TooltipList from './TooltipList';
+
+interface TooltipPanelProps {
+  tooltips: Tooltip[];
+  toc: TOCNode[];
+  onEdit?: (tooltip: Tooltip) => void;
+  onDelete?: (tooltipId: string) => void;
+  onPin?: (tooltipId: string) => void;
+  onNavigate?: (domNodeId: string) => void;
+}
+
+export default function TooltipPanel({
+  tooltips,
+  toc,
+  onEdit,
+  onDelete,
+  onPin,
+  onNavigate,
+}: TooltipPanelProps) {
   return (
     <div className="space-y-3">
       {/* Header */}
@@ -8,15 +28,20 @@ export default function TooltipPanel() {
         <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">
           Annotations
         </h2>
+        <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+          {tooltips.length}
+        </span>
       </div>
 
-      {/* Empty state - will be replaced with actual tooltips */}
-      <div className="bg-slate-50 rounded-lg border border-slate-200 p-6 shadow-sm text-center">
-        <p className="text-sm text-slate-500">No tooltips yet</p>
-        <p className="text-xs text-slate-400 mt-1">
-          Click on a paragraph to create an annotation
-        </p>
-      </div>
+      {/* Tooltip list */}
+      <TooltipList
+        tooltips={tooltips}
+        toc={toc}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        onPin={onPin}
+        onNavigate={onNavigate}
+      />
     </div>
   );
 }
