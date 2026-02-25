@@ -15,6 +15,8 @@ export interface TooltipGroup {
   id: string;
   title: string;
   tooltips: Tooltip[];
+  children?: TooltipGroup[]; // For hierarchical grouping
+  level?: number; // Depth level for indentation
 }
 
 export interface GroupingStrategy {
@@ -23,7 +25,7 @@ export interface GroupingStrategy {
 }
 
 /**
- * Group tooltips by the section they belong to
+ * Group tooltips by the section they belong to (hierarchical)
  */
 export class SectionGroupingStrategy implements GroupingStrategy {
   name = 'section';
@@ -35,76 +37,67 @@ export class SectionGroupingStrategy implements GroupingStrategy {
         id: 'ungrouped',
         title: 'All Tooltips',
         tooltips: tooltips,
+        level: 0,
       }];
     }
 
     // Build a map of dom_node_id -> section
     const nodeToSection = this.buildNodeToSectionMap(toc);
 
-    // Group tooltips by section
-    const groups = new Map<string, TooltipGroup>();
+    // Group tooltips by section ID
+    const tooltipsBySection = new Map<string, Tooltip[]>();
 
     tooltips.forEach(tooltip => {
       const sectionInfo = nodeToSection.get(tooltip.dom_node_id);
+      const sectionId = sectionInfo?.id || 'other';
 
-      if (sectionInfo) {
-        const existingGroup = groups.get(sectionInfo.id);
-        if (existingGroup) {
-          existingGroup.tooltips.push(tooltip);
-        } else {
-          groups.set(sectionInfo.id, {
-            id: sectionInfo.id,
-            title: sectionInfo.title,
-            tooltips: [tooltip],
-          });
-        }
+      const existing = tooltipsBySection.get(sectionId);
+      if (existing) {
+        existing.push(tooltip);
       } else {
-        // Tooltip not in any section, add to "Other" group
-        const otherGroup = groups.get('other');
-        if (otherGroup) {
-          otherGroup.tooltips.push(tooltip);
-        } else {
-          groups.set('other', {
-            id: 'other',
-            title: 'Other',
-            tooltips: [tooltip],
-          });
-        }
+        tooltipsBySection.set(sectionId, [tooltip]);
       }
     });
 
-    // Order groups by section appearance in TOC
-    const orderedGroups = this.orderGroupsByTOC(Array.from(groups.values()), toc);
-    return orderedGroups;
+    // Build hierarchical groups from TOC
+    const hierarchicalGroups = this.buildHierarchicalGroups(toc, tooltipsBySection, 0);
+
+    // Add "Other" group if there are orphaned tooltips
+    if (tooltipsBySection.has('other')) {
+      hierarchicalGroups.push({
+        id: 'other',
+        title: 'Other',
+        tooltips: tooltipsBySection.get('other') || [],
+        level: 0,
+      });
+    }
+
+    return hierarchicalGroups;
   }
 
   /**
-   * Order groups by their appearance in the TOC
-   * "Other" group goes last
+   * Build hierarchical groups matching the TOC structure
    */
-  private orderGroupsByTOC(groups: TooltipGroup[], toc: TOCNode[]): TooltipGroup[] {
-    // Build a map of section ID -> order index
-    const sectionOrder = new Map<string, number>();
-    let index = 0;
+  private buildHierarchicalGroups(
+    nodes: TOCNode[],
+    tooltipsBySection: Map<string, Tooltip[]>,
+    level: number
+  ): TooltipGroup[] {
+    return nodes.map(node => {
+      const tooltips = tooltipsBySection.get(node.id) || [];
+      const children = this.buildHierarchicalGroups(node.children, tooltipsBySection, level + 1);
 
-    function traverse(node: TOCNode) {
-      sectionOrder.set(node.id, index++);
-      node.children.forEach(traverse);
-    }
-
-    toc.forEach(traverse);
-
-    // Sort groups by section order
-    return groups.sort((a, b) => {
-      // "Other" always goes last
-      if (a.id === 'other') return 1;
-      if (b.id === 'other') return -1;
-
-      const aOrder = sectionOrder.get(a.id) ?? 999999;
-      const bOrder = sectionOrder.get(b.id) ?? 999999;
-
-      return aOrder - bOrder;
-    });
+      return {
+        id: node.id,
+        title: node.title,
+        tooltips,
+        children: children.length > 0 ? children : undefined,
+        level,
+      };
+    }).filter(group =>
+      // Only include groups that have tooltips in themselves or descendants
+      group.tooltips.length > 0 || (group.children && group.children.length > 0)
+    );
   }
 
   /**

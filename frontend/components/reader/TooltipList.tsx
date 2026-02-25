@@ -133,35 +133,73 @@ function GroupSection({ group, onEdit, onDelete, onPin, onNavigate }: GroupSecti
   const [collapsed, setCollapsed] = useState(false);
   const sortedTooltips = useMemo(() => sortTooltipsByPriority(group.tooltips), [group.tooltips]);
 
+  // Calculate total tooltip count including children
+  const totalCount = useMemo(() => {
+    let count = group.tooltips.length;
+    const countChildren = (children?: TooltipGroup[]) => {
+      if (!children) return;
+      children.forEach(child => {
+        count += child.tooltips.length;
+        countChildren(child.children);
+      });
+    };
+    countChildren(group.children);
+    return count;
+  }, [group]);
+
+  const indentLevel = group.level || 0;
+
   return (
     <div className="space-y-2">
       {/* Group header */}
       <button
         onClick={() => setCollapsed(!collapsed)}
         className="w-full flex items-center gap-2 px-2 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded transition-colors"
+        style={{ paddingLeft: `${indentLevel * 12 + 8}px` }}
       >
         {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
         <span className="flex-1 text-left truncate" title={group.title}>
           {group.title}
         </span>
         <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-          {group.tooltips.length}
+          {totalCount}
         </span>
       </button>
 
-      {/* Tooltip cards */}
+      {/* Content when expanded */}
       {!collapsed && (
-        <div className="space-y-2 ml-4">
-          {sortedTooltips.map(tooltip => (
-            <TooltipCard
-              key={tooltip.id}
-              tooltip={tooltip}
-              onEdit={onEdit}
-              onDelete={onDelete}
-              onPin={onPin}
-              onNavigate={onNavigate}
-            />
-          ))}
+        <div className="space-y-2">
+          {/* Tooltip cards for this section */}
+          {sortedTooltips.length > 0 && (
+            <div className="space-y-2 ml-4" style={{ marginLeft: `${(indentLevel + 1) * 12 + 8}px` }}>
+              {sortedTooltips.map(tooltip => (
+                <TooltipCard
+                  key={tooltip.id}
+                  tooltip={tooltip}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                  onPin={onPin}
+                  onNavigate={onNavigate}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Child sections (recursively) */}
+          {group.children && group.children.length > 0 && (
+            <div className="space-y-2">
+              {group.children.map(child => (
+                <GroupSection
+                  key={child.id}
+                  group={child}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                  onPin={onPin}
+                  onNavigate={onNavigate}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
