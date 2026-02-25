@@ -2,7 +2,7 @@
 Tests for database models.
 """
 
-from datetime import datetime
+from datetime import datetime, UTC
 
 import pytest
 
@@ -17,7 +17,7 @@ class TestPaperModel:
         paper = Paper(
             id="abc123def456",
             filename="test_paper.tar.gz",
-            uploaded_at=datetime.utcnow()
+            uploaded_at=datetime.now(UTC)
         )
         test_db.add(paper)
         test_db.commit()
@@ -35,7 +35,7 @@ class TestPaperModel:
             id="xyz789",
             filename="arXiv:2401.12345",
             arxiv_id="2401.12345",
-            uploaded_at=datetime.utcnow()
+            uploaded_at=datetime.now(UTC)
         )
         test_db.add(paper)
         test_db.commit()
@@ -49,8 +49,8 @@ class TestPaperModel:
             id="html123",
             filename="compiled_paper.tar.gz",
             html_content=sample_html,
-            uploaded_at=datetime.utcnow(),
-            compiled_at=datetime.utcnow()
+            uploaded_at=datetime.now(UTC),
+            compiled_at=datetime.now(UTC)
         )
         test_db.add(paper)
         test_db.commit()
@@ -65,7 +65,7 @@ class TestPaperModel:
         paper = Paper(
             id="a" * 64,
             filename="test.tar.gz",
-            uploaded_at=datetime.utcnow()
+            uploaded_at=datetime.now(UTC)
         )
         test_db.add(paper)
         test_db.commit()
@@ -79,7 +79,7 @@ class TestPaperModel:
         paper = Paper(
             id="delete_me",
             filename="to_delete.tar.gz",
-            uploaded_at=datetime.utcnow()
+            uploaded_at=datetime.now(UTC)
         )
         test_db.add(paper)
         test_db.commit()
@@ -100,7 +100,7 @@ class TestTooltipModel:
         paper = Paper(
             id="paper_for_tooltip",
             filename="test.tar.gz",
-            uploaded_at=datetime.utcnow()
+            uploaded_at=datetime.now(UTC)
         )
         test_db.add(paper)
         test_db.commit()
@@ -111,8 +111,8 @@ class TestTooltipModel:
             paper_id="paper_for_tooltip",
             dom_node_id="abc123",
             content="This is a test annotation",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC)
         )
         test_db.add(tooltip)
         test_db.commit()
@@ -127,7 +127,7 @@ class TestTooltipModel:
         paper = Paper(
             id="paper_default_user",
             filename="test.tar.gz",
-            uploaded_at=datetime.utcnow()
+            uploaded_at=datetime.now(UTC)
         )
         test_db.add(paper)
         test_db.commit()
@@ -137,8 +137,8 @@ class TestTooltipModel:
             paper_id="paper_default_user",
             dom_node_id="node123",
             content="Test content",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC)
         )
         test_db.add(tooltip)
         test_db.commit()
@@ -151,7 +151,7 @@ class TestTooltipModel:
         paper = Paper(
             id="paper_rel",
             filename="test.tar.gz",
-            uploaded_at=datetime.utcnow()
+            uploaded_at=datetime.now(UTC)
         )
         test_db.add(paper)
         test_db.commit()
@@ -161,8 +161,8 @@ class TestTooltipModel:
             paper_id="paper_rel",
             dom_node_id="node456",
             content="Related content",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC)
         )
         test_db.add(tooltip)
         test_db.commit()
@@ -177,7 +177,7 @@ class TestTooltipModel:
         paper = Paper(
             id="paper_many_tooltips",
             filename="test.tar.gz",
-            uploaded_at=datetime.utcnow()
+            uploaded_at=datetime.now(UTC)
         )
         test_db.add(paper)
         test_db.commit()
@@ -189,8 +189,8 @@ class TestTooltipModel:
                 paper_id="paper_many_tooltips",
                 dom_node_id=f"node_{i}",
                 content=f"Content {i}",
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC)
             )
             test_db.add(tooltip)
         test_db.commit()
@@ -204,7 +204,7 @@ class TestTooltipModel:
         paper = Paper(
             id="paper_cascade",
             filename="test.tar.gz",
-            uploaded_at=datetime.utcnow()
+            uploaded_at=datetime.now(UTC)
         )
         test_db.add(paper)
         test_db.commit()
@@ -214,8 +214,8 @@ class TestTooltipModel:
             paper_id="paper_cascade",
             dom_node_id="cascade_node",
             content="Will be deleted",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC)
         )
         test_db.add(tooltip)
         test_db.commit()
@@ -233,7 +233,7 @@ class TestTooltipModel:
         paper = Paper(
             id="paper_update",
             filename="test.tar.gz",
-            uploaded_at=datetime.utcnow()
+            uploaded_at=datetime.now(UTC)
         )
         test_db.add(paper)
         test_db.commit()
@@ -243,15 +243,15 @@ class TestTooltipModel:
             paper_id="paper_update",
             dom_node_id="update_node",
             content="Original content",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC)
         )
         test_db.add(tooltip)
         test_db.commit()
 
         # Update content
         tooltip.content = "Updated content"
-        tooltip.updated_at = datetime.utcnow()
+        tooltip.updated_at = datetime.now(UTC)
         test_db.commit()
 
         retrieved = test_db.query(Tooltip).filter(Tooltip.id == "tooltip_update").first()
@@ -262,7 +262,7 @@ class TestTooltipModel:
         paper = Paper(
             id="a" * 64,
             filename="test.tar.gz",
-            uploaded_at=datetime.utcnow()
+            uploaded_at=datetime.now(UTC)
         )
         test_db.add(paper)
         test_db.commit()
@@ -272,8 +272,8 @@ class TestTooltipModel:
             paper_id="a" * 64,
             dom_node_id="node",
             content="Test",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC)
         )
         test_db.add(tooltip)
         test_db.commit()

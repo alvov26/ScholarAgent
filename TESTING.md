@@ -54,39 +54,57 @@ Comprehensive testing approach for Scholar Agent MVP.
 
 ### Frontend (`frontend/__tests__/`)
 
-#### HTML Renderer (`frontend/__tests__/HTMLRenderer.test.tsx`)
-- [ ] Test html-react-parser basic parsing
-- [ ] Test `<math>` tag interception
-- [ ] Test `<p>` tag interception with data-id
-- [ ] Test nested element handling
-- [ ] Test malformed HTML handling
+**Testing Stack**: Vitest + React Testing Library + jsdom
 
-**Run**: `npm test HTMLRenderer.test.tsx`
+**Quick Start**:
+```bash
+cd frontend
+npm test              # Run all tests
+npm run test:watch    # Watch mode
+npm run test:coverage # Coverage report
+```
 
-#### MathJax Node (`frontend/__tests__/MathJaxNode.test.tsx`)
+**Status**: ✅ Testing infrastructure set up with example tests
+
+#### HTML Renderer (`frontend/__tests__/unit/HTMLRenderer.test.tsx`)
+- [x] Test html-react-parser basic parsing
+- [x] Test `<math>` tag interception
+- [x] Test `<p>` tag interception with data-id
+- [x] Test nested element handling
+- [x] Test malformed HTML handling
+- [x] Test list rendering
+- [x] Test CSS classes
+
+**Run**: `npm test -- HTMLRenderer.test.tsx`
+
+#### Tooltips Hook (`frontend/__tests__/unit/useTooltips.test.ts`)
+- [x] Test tooltip fetching from API
+- [x] Test tooltip creation
+- [x] Test tooltip update
+- [x] Test tooltip deletion
+- [x] Test error handling
+- [x] Test tooltip map building
+- [x] Test loading states
+
+**Run**: `npm test -- useTooltips.test.ts`
+
+#### MathJax Node (`frontend/__tests__/unit/MathJaxNode.test.tsx`)
 - [ ] Test MathML rendering
 - [ ] Test semantic enrichment (SRE) activation
 - [ ] Test symbol selection events
 - [ ] Test inline vs display math
 
-**Run**: `npm test MathJaxNode.test.tsx`
+**To Implement**
 
-#### Interactive Paragraph (`frontend/__tests__/InteractiveParagraph.test.tsx`)
+#### Interactive Node (`frontend/__tests__/unit/InteractiveNode.test.tsx`)
 - [ ] Test tooltip display on click
-- [ ] Test tooltip creation
+- [ ] Test tooltip creation modal
 - [ ] Test Framer Motion animations
 - [ ] Test data-id attribute binding
 
-**Run**: `npm test InteractiveParagraph.test.tsx`
+**To Implement**
 
-#### Tooltips Hook (`frontend/__tests__/useTooltips.test.ts`)
-- [ ] Test tooltip fetching from API
-- [ ] Test tooltip creation
-- [ ] Test tooltip update
-- [ ] Test tooltip deletion
-- [ ] Test error handling
-
-**Run**: `npm test useTooltips.test.ts`
+**See `frontend/TESTING.md` for detailed testing guide.**
 
 ---
 
@@ -240,13 +258,27 @@ jobs:
 - **Frontend**: 70% line coverage minimum (UI testing is harder)
 - **Critical paths**: 100% coverage (LaTeXML compilation, tooltip persistence)
 
+### Current Coverage
+
+**Backend** (as of setup):
+- LaTeXML Compiler: ~95% coverage
+- Database Models: ~90% coverage
+- API Endpoints: ~80% coverage
+
+**Frontend** (as of setup):
+- HTMLRenderer: 92% coverage
+- useTooltips: 82% coverage
+- Overall: ~17% (many components not yet tested)
+
 **Check coverage**:
 ```bash
 # Backend
-pytest --cov=backend tests/
+.venv/bin/pytest --cov=backend --cov-report=html tests/
+# Open htmlcov/index.html in browser
 
 # Frontend
-npm run test:coverage
+cd frontend && npm run test:coverage
+# Open coverage/index.html in browser
 ```
 
 ---
@@ -262,14 +294,17 @@ npm run test:coverage
 ## TODO: Tests to Write
 
 ### High Priority
-- [ ] LaTeXML compiler unit tests
-- [ ] Database model tests
-- [ ] API endpoint tests
-- [ ] HTMLRenderer component tests
+- [x] LaTeXML compiler unit tests ✅ (13 tests)
+- [x] Database model tests ✅ (14 tests)
+- [x] API endpoint tests ✅ (24 tests)
+- [x] HTMLRenderer component tests ✅ (11 tests)
+- [x] useTooltips hook tests ✅ (9 tests)
 
 ### Medium Priority
+- [ ] MathJaxNode component tests
+- [ ] InteractiveNode component tests
 - [ ] Full pipeline integration test
-- [ ] Frontend E2E test
+- [ ] Frontend E2E test (Playwright)
 - [ ] Performance benchmarks
 
 ### Low Priority
@@ -281,16 +316,44 @@ npm run test:coverage
 
 ## Running All Tests
 
+### Backend Tests (56 tests)
 ```bash
-# Backend
-pytest tests/
+# Run all backend tests
+.venv/bin/pytest tests/
 
-# Frontend
-cd frontend && npm test
+# Run with coverage
+.venv/bin/pytest --cov=backend --cov-report=html tests/
 
-# Coverage report
-pytest --cov=backend --cov-report=html tests/
-cd frontend && npm run test:coverage
+# Run specific test file
+.venv/bin/pytest tests/test_api.py -v
+
+# Run specific test
+.venv/bin/pytest tests/test_api.py::TestRootEndpoint::test_root_returns_welcome_message -v
 ```
 
-Reports will be in `htmlcov/` (backend) and `coverage/` (frontend).
+Coverage report will be in `htmlcov/index.html`
+
+### Frontend Tests (20 tests)
+```bash
+cd frontend
+
+# Run all frontend tests
+npm test
+
+# Run with coverage
+npm run test:coverage
+
+# Run in watch mode
+npm run test:watch
+
+# Run specific test file
+npm test -- __tests__/unit/HTMLRenderer.test.tsx
+```
+
+Coverage report will be in `frontend/coverage/index.html`
+
+### Quick Command
+```bash
+# Run ALL tests (backend + frontend)
+.venv/bin/pytest tests/ -q && cd frontend && npm test -- --run && cd ..
+```

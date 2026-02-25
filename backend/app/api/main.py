@@ -2,7 +2,7 @@ import hashlib
 import os
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Optional
 
@@ -130,7 +130,7 @@ async def upload_paper(
     paper = Paper(
         id=file_hash,
         filename=file.filename,
-        uploaded_at=datetime.utcnow()
+        uploaded_at=datetime.now(UTC)
     )
 
     # Compile if requested
@@ -138,7 +138,7 @@ async def upload_paper(
         try:
             html = compile_latex_to_html(upload_path, file_hash, use_docker=USE_DOCKER)
             paper.html_content = html
-            paper.compiled_at = datetime.utcnow()
+            paper.compiled_at = datetime.now(UTC)
         except Exception as e:
             # Store paper without HTML, log error
             paper.html_content = None
@@ -174,7 +174,7 @@ async def upload_arxiv_source(
         id=file_hash,
         filename=f"arXiv:{arxiv_id}",
         arxiv_id=arxiv_id,
-        uploaded_at=datetime.utcnow()
+        uploaded_at=datetime.now(UTC)
     )
 
     # Compile if requested
@@ -182,7 +182,7 @@ async def upload_arxiv_source(
         try:
             html = compile_latex_to_html(archive_path, file_hash, use_docker=USE_DOCKER)
             paper.html_content = html
-            paper.compiled_at = datetime.utcnow()
+            paper.compiled_at = datetime.now(UTC)
         except Exception as e:
             paper.html_content = None
 
@@ -208,7 +208,7 @@ async def compile_paper(paper_id: str, db: Session = Depends(get_db)):
     try:
         html = compile_latex_to_html(source_path, paper_id, use_docker=USE_DOCKER)
         paper.html_content = html
-        paper.compiled_at = datetime.utcnow()
+        paper.compiled_at = datetime.now(UTC)
         db.commit()
         db.refresh(paper)
     except Exception as e:
@@ -297,8 +297,8 @@ async def create_tooltip(
         dom_node_id=tooltip.dom_node_id,
         target_text=tooltip.target_text,
         content=tooltip.content,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow()
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC)
     )
 
     db.add(new_tooltip)
@@ -327,7 +327,7 @@ async def update_tooltip(
     if tooltip.target_text is not None:
         existing.target_text = tooltip.target_text
     existing.content = tooltip.content
-    existing.updated_at = datetime.utcnow()
+    existing.updated_at = datetime.now(UTC)
     db.commit()
     db.refresh(existing)
 

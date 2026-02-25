@@ -1,6 +1,12 @@
-from datetime import datetime
+from datetime import datetime, UTC
 from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Index
 from sqlalchemy.orm import DeclarativeBase, relationship
+
+
+# Helper function for SQLAlchemy default datetime values
+def utcnow():
+    """Return current UTC time for use as SQLAlchemy default."""
+    return datetime.now(UTC)
 
 
 class Base(DeclarativeBase):
@@ -14,7 +20,7 @@ class Paper(Base):
     filename = Column(String(255), nullable=False)
     arxiv_id = Column(String(20), nullable=True)
     html_content = Column(Text, nullable=True)  # Compiled HTML from LaTeXML
-    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    uploaded_at = Column(DateTime, default=utcnow)
     compiled_at = Column(DateTime, nullable=True)
 
     tooltips = relationship("Tooltip", back_populates="paper", cascade="all, delete-orphan")
@@ -32,8 +38,8 @@ class Tooltip(Base):
     user_id = Column(String(64), default="default")  # MVP: single user
     target_text = Column(String(512), nullable=True)  # What symbol/term this annotation explains
     content = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     paper = relationship("Paper", back_populates="tooltips")
 

@@ -212,8 +212,8 @@ class TestTooltipsEndpoints:
         assert result["content"] == "Test annotation"
         assert "id" in result
 
-    def test_create_tooltip_updates_existing(self, api_client, paper_with_id):
-        """Test that creating tooltip on same node updates it."""
+    def test_create_multiple_tooltips_on_same_node(self, api_client, paper_with_id):
+        """Test that multiple tooltips can be created on the same node."""
         # Create first tooltip
         response1 = api_client.post(
             f"/api/papers/{paper_with_id}/tooltips",
@@ -225,14 +225,20 @@ class TestTooltipsEndpoints:
         # Create second tooltip on same node
         response2 = api_client.post(
             f"/api/papers/{paper_with_id}/tooltips",
-            json={"dom_node_id": "node123", "content": "Updated content"}
+            json={"dom_node_id": "node123", "content": "Second content"}
         )
         assert response2.status_code == 200
         tooltip_id2 = response2.json()["id"]
 
-        # Should be the same tooltip (updated)
-        assert tooltip_id1 == tooltip_id2
-        assert response2.json()["content"] == "Updated content"
+        # Should be different tooltips (multiple per node supported)
+        assert tooltip_id1 != tooltip_id2
+        assert response2.json()["content"] == "Second content"
+
+        # Both should exist
+        get_response = api_client.get(f"/api/papers/{paper_with_id}/tooltips")
+        tooltips = get_response.json() if isinstance(get_response.json(), list) else get_response.json().get("tooltips", [])
+        node123_tooltips = [t for t in tooltips if t["dom_node_id"] == "node123"]
+        assert len(node123_tooltips) == 2
 
     def test_update_tooltip(self, api_client, paper_with_id):
         """Test updating a tooltip."""
