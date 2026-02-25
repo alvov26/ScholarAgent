@@ -37,7 +37,23 @@ export function parseTOC(html: string): TOCNode[] {
   headings.forEach((heading) => {
     const level = parseInt(heading.tagName.substring(1)); // h1 -> 1, h2 -> 2, etc.
     const id = heading.getAttribute('data-id') || '';
-    const title = heading.textContent?.trim() || 'Untitled';
+
+    // Extract title: preserve MathML but remove LaTeX text annotations
+    let title = '';
+    const clonedHeading = heading.cloneNode(true) as HTMLElement;
+
+    // Remove any <text> elements (LaTeX annotations)
+    clonedHeading.querySelectorAll('text').forEach(el => el.remove());
+
+    // Check if there's MathML content
+    const mathElements = clonedHeading.querySelectorAll('math');
+    if (mathElements.length > 0) {
+      // Use innerHTML to preserve MathML tags
+      title = clonedHeading.innerHTML.trim();
+    } else {
+      // Plain text heading
+      title = clonedHeading.textContent?.trim() || 'Untitled';
+    }
 
     const node: TOCNode = {
       id,

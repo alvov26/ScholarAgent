@@ -1,8 +1,20 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ChevronRight, ChevronDown, FileText } from 'lucide-react';
 import type { TOCNode } from '@/utils/parseTOC';
+
+// Extend Window interface for MathJax
+declare global {
+  interface Window {
+    MathJax?: {
+      typesetPromise: (elements?: HTMLElement[]) => Promise<void>;
+      startup?: {
+        promise?: Promise<void>;
+      };
+    };
+  }
+}
 
 interface TableOfContentsProps {
   nodes: TOCNode[];
@@ -21,6 +33,7 @@ function TOCNodeItem({ node, onNavigate, currentSectionId, depth }: TOCNodeItemP
   const [expanded, setExpanded] = useState(true);
   const hasChildren = node.children.length > 0;
   const isActive = node.id === currentSectionId;
+  const titleRef = useRef<HTMLSpanElement>(null);
 
   const handleToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -30,6 +43,23 @@ function TOCNodeItem({ node, onNavigate, currentSectionId, depth }: TOCNodeItemP
   const handleNavigate = () => {
     onNavigate?.(node.id);
   };
+
+  // Typeset MathML with MathJax when title changes
+  useEffect(() => {
+    const typeset = async () => {
+      if (typeof window !== 'undefined' && window.MathJax?.typesetPromise && titleRef.current) {
+        try {
+          if (window.MathJax.startup?.promise) {
+            await window.MathJax.startup.promise;
+          }
+          await window.MathJax.typesetPromise([titleRef.current]);
+        } catch (err) {
+          console.error('[TOC] MathJax typesetting error:', err);
+        }
+      }
+    };
+    typeset();
+  }, [node.title]);
 
   return (
     <div>
@@ -57,7 +87,11 @@ function TOCNodeItem({ node, onNavigate, currentSectionId, depth }: TOCNodeItemP
         ) : (
           <div className="w-3.5" /> // Spacer for alignment
         )}
-        <span className="truncate flex-1">{node.title}</span>
+        <span
+          ref={titleRef}
+          className="truncate flex-1"
+          dangerouslySetInnerHTML={{ __html: node.title }}
+        />
       </div>
 
       {hasChildren && expanded && (
