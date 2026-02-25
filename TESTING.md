@@ -89,12 +89,42 @@ npm run test:coverage # Coverage report
 **Run**: `npm test -- useTooltips.test.ts`
 
 #### MathJax Node (`frontend/__tests__/unit/MathJaxNode.test.tsx`)
-- [ ] Test MathML rendering
-- [ ] Test semantic enrichment (SRE) activation
-- [ ] Test symbol selection events
-- [ ] Test inline vs display math
+- [x] Test MathML rendering
+- [x] Test semantic enrichment (SRE) activation
+- [x] Test inline vs display math
+- [x] Test MathJax typesetting
+- [x] Test error handling
+- [x] Test complex MathML structures
+- [x] Test display properties
 
-**To Implement**
+**Run**: `npm test -- MathJaxNode.test.tsx`
+
+#### LaTeX Text (`frontend/__tests__/unit/LatexText.test.tsx`)
+- [x] Test inline math delimiter conversion
+- [x] Test display math handling
+- [x] Test MathJax integration
+- [x] Test text-only rendering
+- [x] Test edge cases (empty strings, special characters)
+- [x] Test multiple math expressions
+- [x] Test nested delimiters
+
+**Run**: `npm test -- LatexText.test.tsx`
+
+#### Paper Loader (`frontend/__tests__/unit/PaperLoader.test.tsx`)
+- [x] Test main interface rendering
+- [x] Test paper fetching on mount
+- [x] Test file upload handling
+- [x] Test arXiv paper fetching
+- [x] Test loading states
+- [x] Test error handling
+- [x] Test cached papers list
+- [x] Test paper selection
+- [x] Test HTMLRenderer integration
+- [x] Test compilation prompt
+- [x] Test recompile action
+- [x] Test delete action with confirmation
+
+**Run**: `npm test -- PaperLoader.test.tsx`
 
 #### Interactive Node (`frontend/__tests__/unit/InteractiveNode.test.tsx`)
 - [ ] Test tooltip display on click
@@ -265,10 +295,13 @@ jobs:
 - Database Models: ~90% coverage
 - API Endpoints: ~80% coverage
 
-**Frontend** (as of setup):
+**Frontend** (as of current tests):
 - HTMLRenderer: 92% coverage
 - useTooltips: 82% coverage
-- Overall: ~17% (many components not yet tested)
+- MathJaxNode: ~85% coverage
+- LatexText: ~90% coverage
+- PaperLoader: ~80% coverage
+- Overall: ~30% (some components not yet tested)
 
 **Check coverage**:
 ```bash
@@ -299,9 +332,11 @@ cd frontend && npm run test:coverage
 - [x] API endpoint tests ✅ (24 tests)
 - [x] HTMLRenderer component tests ✅ (11 tests)
 - [x] useTooltips hook tests ✅ (9 tests)
+- [x] MathJaxNode component tests ✅ (11 tests)
+- [x] LatexText component tests ✅ (16 tests)
+- [x] PaperLoader component tests ✅ (18 tests)
 
 ### Medium Priority
-- [ ] MathJaxNode component tests
 - [ ] InteractiveNode component tests
 - [ ] Full pipeline integration test
 - [ ] Frontend E2E test (Playwright)
@@ -333,7 +368,7 @@ cd frontend && npm run test:coverage
 
 Coverage report will be in `htmlcov/index.html`
 
-### Frontend Tests (20 tests)
+### Frontend Tests (65 tests)
 ```bash
 cd frontend
 
