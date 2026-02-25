@@ -4,6 +4,9 @@ import { useEffect, useState, useCallback } from "react";
 import { usePapers, Paper, PaperDetail } from "@/hooks/usePapers";
 import { useTooltips } from "@/hooks/useTooltips";
 import { HTMLRenderer } from "./HTMLRenderer";
+import ResizableLayout from "./ResizableLayout";
+import NavigationPanel from "./NavigationPanel";
+import TooltipPanel from "./TooltipPanel";
 import { Loader2, Upload, ExternalLink, Trash2, RefreshCw, FileText, AlertCircle } from "lucide-react";
 
 export default function PaperLoader() {
@@ -113,8 +116,12 @@ export default function PaperLoader() {
   const error = papersError || tooltipsError;
   const loading = papersLoading || tooltipsLoading || !!status;
 
-  return (
-    <main className="min-h-screen bg-slate-50 py-8 px-4">
+  // Left panel content
+  const leftPanel = <NavigationPanel />;
+
+  // Main panel content
+  const mainPanel = (
+    <div className="py-8 px-4">
       {/* Header */}
       <div className="max-w-5xl mx-auto mb-8 text-center">
         <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight mb-2">
@@ -293,6 +300,17 @@ export default function PaperLoader() {
           Upload a LaTeX archive or select a paper to start reading
         </div>
       )}
-    </main>
+    </div>
+  );
+
+  // Right panel content
+  const rightPanel = <TooltipPanel />;
+
+  return (
+    <ResizableLayout
+      leftPanel={leftPanel}
+      mainPanel={mainPanel}
+      rightPanel={rightPanel}
+    />
   );
 }
