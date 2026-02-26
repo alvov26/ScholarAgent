@@ -131,13 +131,14 @@ class LaTeXMLCompiler:
         self.use_docker = use_docker
         self.docker_image = docker_image
 
-    def compile(self, source_path: Path, paper_id: str) -> str:
+    def compile(self, source_path: Path, paper_id: str, assets_dir: Optional[Path] = None) -> str:
         """
         Compile LaTeX source to HTML.
 
         Args:
             source_path: Path to .tar.gz, .zip, or .tex file
             paper_id: Unique identifier for the paper (used for data-id generation)
+            assets_dir: Optional directory to save generated assets (images, CSS, etc.)
 
         Returns:
             Compiled HTML string with injected data-id attributes
@@ -162,6 +163,15 @@ class LaTeXMLCompiler:
                 html = self._compile_with_docker(source_dir, main_tex, output_dir)
             else:
                 html = self._compile_locally(source_dir, main_tex, output_dir)
+
+            # Copy generated assets if assets_dir is provided
+            if assets_dir:
+                assets_dir.mkdir(parents=True, exist_ok=True)
+                # Copy both generated assets and source images
+                self._copy_assets(output_dir, assets_dir)
+                self._copy_source_images(source_dir, assets_dir)
+                # Rewrite asset paths in HTML to point to API endpoint
+                html = self._rewrite_asset_paths(html, paper_id)
 
             # Post-process: inject data-id attributes
             html = inject_data_ids(html, paper_id)
@@ -305,9 +315,58 @@ class LaTeXMLCompiler:
         html = output_html.read_text(encoding="utf-8")
         return self._extract_body(html)
 
+    def _copy_assets(self, output_dir: Path, assets_dir: Path) -> None:
+        """Copy generated assets (images, CSS, etc.) to assets directory."""
+        # LaTeXML generates images and other assets alongside the HTML
+        # Copy all non-HTML files to the assets directory
+        for item in output_dir.iterdir():
+            if item.is_file() and item.suffix.lower() not in {'.html', '.xml'}:
+                shutil.copy(item, assets_dir / item.name)
+
+    def _copy_source_images(self, source_dir: Path, assets_dir: Path) -> None:
+        """Copy image files from source directory to assets directory."""
+        # Common image extensions used in LaTeX papers
+        image_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.svg', '.pdf', '.eps'}
+
+        # Recursively find all image files in source directory
+        for item in source_dir.rglob('*'):
+            if item.is_file() and item.suffix.lower() in image_extensions:
+                # Copy to assets directory, preserving only the filename
+                # This matches how LaTeX typically references images (without subdirectories in HTML)
+                dest_path = assets_dir / item.name
+                # Don't overwrite if file already exists (LaTeXML might have generated a converted version)
+                if not dest_path.exists():
+                    shutil.copy(item, dest_path)
+
+    def _rewrite_asset_paths(self, html: str, paper_id: str) -> str:
+        """Rewrite asset paths in HTML to point to API endpoint with absolute URL."""
+        # Use environment variable for API base URL, default to localhost:8000
+        import os
+        api_base = os.getenv('API_BASE_URL', 'http://localhost:8000')
+
+        # Pattern matches src="path/to/file.ext" (with or without subdirectories)
+        # We extract just the filename since all assets are flattened into assets_dir
+        def replace_src(match):
+            full_path = match.group(1)
+            # Skip if already rewritten or is an absolute URL
+            if full_path.startswith('http://') or full_path.startswith('https://') or '/api/papers/' in full_path:
+                return match.group(0)  # Return unchanged
+            # Extract just the filename (last component of path)
+            filename = full_path.split('/')[-1]
+            # Preserve the quote style from original
+            quote = '"' if match.group(0).startswith('src="') else "'"
+            return f'src={quote}{api_base}/api/papers/{paper_id}/assets/{filename}{quote}'
+
+        # Match src with double or single quotes
+        # [^"'] means "not a quote", + means one or more
+        pattern = r'src=["\']([^"\']+\.(png|jpg|jpeg|gif|svg|css|js|pdf|eps))["\']'
+        html = re.sub(pattern, replace_src, html)
+
+        return html
+
 
 # Convenience function for API usage
-def compile_latex_to_html(source_path: Path, paper_id: str, use_docker: bool = True) -> str:
+def compile_latex_to_html(source_path: Path, paper_id: str, use_docker: bool = True, assets_dir: Optional[Path] = None) -> str:
     """
     Compile LaTeX source to HTML with data-id injection.
 
@@ -315,9 +374,10 @@ def compile_latex_to_html(source_path: Path, paper_id: str, use_docker: bool = T
         source_path: Path to source archive (.tar.gz, .zip) or .tex file
         paper_id: Unique paper identifier for data-id generation
         use_docker: Whether to use Docker for compilation
+        assets_dir: Optional directory to save generated assets
 
     Returns:
         Compiled HTML string
     """
     compiler = LaTeXMLCompiler(use_docker=use_docker)
-    return compiler.compile(source_path, paper_id)
+    return compiler.compile(source_path, paper_id, assets_dir=assets_dir)

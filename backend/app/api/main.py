@@ -9,6 +9,7 @@ from typing import Optional
 import httpx
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -25,9 +26,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Storage directories
-UPLOADS_DIR = Path("storage/uploads")
+# Storage directories (absolute paths relative to project root)
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent  # backend/app/api/main.py -> project root
+UPLOADS_DIR = PROJECT_ROOT / "storage" / "uploads"
+ASSETS_DIR = PROJECT_ROOT / "storage" / "assets"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Configuration
 USE_DOCKER = os.getenv("LATEXML_USE_DOCKER", "true").lower() == "true"
@@ -140,7 +144,8 @@ async def upload_paper(
     # Compile if requested
     if compile_now:
         try:
-            html = compile_latex_to_html(upload_path, file_hash, use_docker=USE_DOCKER)
+            paper_assets_dir = ASSETS_DIR / file_hash
+            html = compile_latex_to_html(upload_path, file_hash, use_docker=USE_DOCKER, assets_dir=paper_assets_dir)
             paper.html_content = html
             paper.compiled_at = datetime.now(UTC)
         except Exception as e:
@@ -184,7 +189,8 @@ async def upload_arxiv_source(
     # Compile if requested
     if compile_now:
         try:
-            html = compile_latex_to_html(archive_path, file_hash, use_docker=USE_DOCKER)
+            paper_assets_dir = ASSETS_DIR / file_hash
+            html = compile_latex_to_html(archive_path, file_hash, use_docker=USE_DOCKER, assets_dir=paper_assets_dir)
             paper.html_content = html
             paper.compiled_at = datetime.now(UTC)
         except Exception as e:
@@ -210,7 +216,8 @@ async def compile_paper(paper_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Source file not found")
 
     try:
-        html = compile_latex_to_html(source_path, paper_id, use_docker=USE_DOCKER)
+        paper_assets_dir = ASSETS_DIR / paper_id
+        html = compile_latex_to_html(source_path, paper_id, use_docker=USE_DOCKER, assets_dir=paper_assets_dir)
         paper.html_content = html
         paper.compiled_at = datetime.now(UTC)
         db.commit()
@@ -261,11 +268,38 @@ async def delete_paper(paper_id: str, db: Session = Depends(get_db)):
             path.unlink()
             deleted_files.append(str(path))
 
+    # Delete assets directory
+    assets_path = ASSETS_DIR / paper_id
+    if assets_path.exists():
+        import shutil
+        shutil.rmtree(assets_path)
+        deleted_files.append(str(assets_path))
+
     # Delete from database (cascades to tooltips)
     db.delete(paper)
     db.commit()
 
     return {"status": "success", "paper_id": paper_id, "deleted_files": deleted_files}
+
+
+@app.get("/api/papers/{paper_id}/assets/{filename}")
+async def get_paper_asset(paper_id: str, filename: str):
+    """Serve a paper's compiled asset (images, CSS, etc.)."""
+    asset_path = ASSETS_DIR / paper_id / filename
+
+    if not asset_path.exists() or not asset_path.is_file():
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    # Security check: ensure path is within assets directory
+    try:
+        asset_path = asset_path.resolve()
+        assets_base = (ASSETS_DIR / paper_id).resolve()
+        if not str(asset_path).startswith(str(assets_base)):
+            raise HTTPException(status_code=403, detail="Access denied")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid path")
+
+    return FileResponse(asset_path)
 
 
 # =============================================================================

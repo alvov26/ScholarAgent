@@ -45,6 +45,7 @@ htmlcov/
 # Project specific
 storage/
 input/
+data/
 uv.lock
 
 # Frontend
