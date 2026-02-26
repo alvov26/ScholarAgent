@@ -137,6 +137,11 @@ export default function PaperLoader() {
     }
   }, []);
 
+  // Get all tooltips as flat array
+  const allTooltips = useMemo(() => {
+    return Object.values(tooltipMap).flat();
+  }, [tooltipMap]);
+
   // Handle tooltip edit from panel
   const handleTooltipEdit = useCallback((tooltip: any) => {
     // TODO: Open edit modal/form
@@ -147,16 +152,14 @@ export default function PaperLoader() {
     }
   }, [updateTooltip]);
 
-  // Handle tooltip pin (placeholder until we add DB field)
+  // Handle tooltip pin/unpin
   const handleTooltipPin = useCallback((tooltipId: string) => {
-    // TODO: Implement pinning once is_pinned field is added
-    console.log('Pin tooltip:', tooltipId);
-  }, []);
+    const tooltip = allTooltips.find(t => t.id === tooltipId);
+    if (!tooltip) return;
 
-  // Get all tooltips as flat array
-  const allTooltips = useMemo(() => {
-    return Object.values(tooltipMap).flat();
-  }, [tooltipMap]);
+    // Toggle pin state
+    updateTooltip(tooltip.id, tooltip.content, tooltip.target_text || undefined, !tooltip.is_pinned);
+  }, [allTooltips, updateTooltip]);
 
   // Left panel content
   const leftPanel = (

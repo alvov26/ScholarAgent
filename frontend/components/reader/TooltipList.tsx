@@ -32,8 +32,9 @@ interface TooltipCardProps {
 }
 
 function TooltipCard({ tooltip, onEdit, onDelete, onPin, onNavigate }: TooltipCardProps) {
-  const [expanded, setExpanded] = useState(false);
-  const isPinned = false; // TODO: Add is_pinned field to database
+  // Pinned tooltips start expanded
+  const [expanded, setExpanded] = useState(tooltip.is_pinned);
+  const isPinned = tooltip.is_pinned;
 
   const handleNavigate = () => {
     onNavigate?.(tooltip.dom_node_id);

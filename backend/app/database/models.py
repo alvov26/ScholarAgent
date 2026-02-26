@@ -1,5 +1,5 @@
 from datetime import datetime, UTC
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Index
+from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Index, Boolean, Integer
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 
@@ -38,6 +38,8 @@ class Tooltip(Base):
     user_id = Column(String(64), default="default")  # MVP: single user
     target_text = Column(String(512), nullable=True)  # What symbol/term this annotation explains
     content = Column(Text, nullable=False)
+    is_pinned = Column(Boolean, default=False, nullable=False)  # Pin to keep expanded
+    display_order = Column(Integer, nullable=True)  # Manual ordering within section
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 

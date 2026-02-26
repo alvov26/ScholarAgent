@@ -10,6 +10,8 @@ export interface Tooltip {
   user_id: string;
   target_text?: string | null;
   content: string;
+  is_pinned: boolean;
+  display_order?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -102,20 +104,23 @@ export function useTooltips(paperId: string | null) {
   const updateTooltip = useCallback(async (
     tooltipId: string,
     content: string,
-    targetText?: string
+    targetText?: string,
+    isPinned?: boolean,
+    displayOrder?: number
   ): Promise<Tooltip | null> => {
     if (!paperId) return null;
 
     setLoading(true);
     setError(null);
     try {
+      const body: any = { content, target_text: targetText };
+      if (isPinned !== undefined) body.is_pinned = isPinned;
+      if (displayOrder !== undefined) body.display_order = displayOrder;
+
       const response = await fetch(`${API_BASE}/api/papers/${paperId}/tooltips/${tooltipId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content,
-          target_text: targetText
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {

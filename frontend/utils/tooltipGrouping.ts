@@ -224,15 +224,13 @@ export class DateGroupingStrategy implements GroupingStrategy {
  */
 export function sortTooltipsByPriority(tooltips: Tooltip[]): Tooltip[] {
   return [...tooltips].sort((a, b) => {
-    // Pinned first (when we add the field)
-    // const aPinned = (a as any).is_pinned || false;
-    // const bPinned = (b as any).is_pinned || false;
-    // if (aPinned !== bPinned) return bPinned ? 1 : -1;
+    // Pinned first
+    if (a.is_pinned !== b.is_pinned) return b.is_pinned ? 1 : -1;
 
-    // By display_order (when we add the field)
-    // const aOrder = (a as any).display_order || 999999;
-    // const bOrder = (b as any).display_order || 999999;
-    // if (aOrder !== bOrder) return aOrder - bOrder;
+    // By display_order (if set)
+    const aOrder = a.display_order ?? 999999;
+    const bOrder = b.display_order ?? 999999;
+    if (aOrder !== bOrder) return aOrder - bOrder;
 
     // By date (newest first)
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();

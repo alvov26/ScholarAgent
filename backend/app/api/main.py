@@ -62,6 +62,8 @@ class TooltipCreate(BaseModel):
 class TooltipUpdate(BaseModel):
     target_text: Optional[str] = None
     content: str
+    is_pinned: Optional[bool] = None
+    display_order: Optional[int] = None
 
 
 class TooltipResponse(BaseModel):
@@ -71,6 +73,8 @@ class TooltipResponse(BaseModel):
     user_id: str
     target_text: Optional[str] = None
     content: str
+    is_pinned: bool
+    display_order: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 
@@ -327,6 +331,10 @@ async def update_tooltip(
     if tooltip.target_text is not None:
         existing.target_text = tooltip.target_text
     existing.content = tooltip.content
+    if tooltip.is_pinned is not None:
+        existing.is_pinned = tooltip.is_pinned
+    if tooltip.display_order is not None:
+        existing.display_order = tooltip.display_order
     existing.updated_at = datetime.now(UTC)
     db.commit()
     db.refresh(existing)
