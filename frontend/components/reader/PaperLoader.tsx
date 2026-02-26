@@ -208,20 +208,20 @@ export default function PaperLoader() {
             <ExternalLink size={14} />
             arXiv Source
           </h2>
-          <div className="flex gap-2">
+          <div className="flex gap-2 w-full">
             <input
               type="text"
               value={arxivInput}
               onChange={(e) => setArxivInput(e.target.value)}
               placeholder="2401.12345"
               disabled={loading}
-              className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none disabled:opacity-50"
+              className="flex-1 min-w-0 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none disabled:opacity-50"
               onKeyDown={(e) => e.key === "Enter" && handleArxivFetch()}
             />
             <button
               onClick={handleArxivFetch}
               disabled={loading || !arxivInput.trim()}
-              className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="flex-shrink-0 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               Fetch
             </button>
@@ -247,7 +247,7 @@ export default function PaperLoader() {
             value={selectedPaperId || ""}
             onChange={(e) => e.target.value && loadPaper(e.target.value)}
             disabled={loading}
-            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 disabled:opacity-50"
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 bg-slate-50 disabled:opacity-50"
           >
             <option value="">Select a paper...</option>
             {papers.map((paper) => (

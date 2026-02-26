@@ -54,7 +54,7 @@ function TooltipCard({ tooltip, onEdit, onDelete, onPin, onNavigate }: TooltipCa
           {tooltip.target_text && (
             <button
               onClick={handleNavigate}
-              className="text-sm font-medium text-slate-700 hover:text-indigo-600 transition-colors truncate block w-full text-left"
+              className="text-sm font-medium text-slate-700 hover:text-indigo-600 transition-colors block w-full text-left break-words"
               title="Jump to location"
             >
               <LatexText text={tooltip.target_text} className="inline" />
@@ -84,7 +84,7 @@ function TooltipCard({ tooltip, onEdit, onDelete, onPin, onNavigate }: TooltipCa
 
       {/* Content preview (when collapsed) */}
       {!expanded && (
-        <div className="text-xs text-slate-600 line-clamp-2">
+        <div className="text-xs text-slate-600 line-clamp-2 break-words">
           <LatexText text={tooltip.content} />
         </div>
       )}
@@ -92,7 +92,7 @@ function TooltipCard({ tooltip, onEdit, onDelete, onPin, onNavigate }: TooltipCa
       {/* Full content (when expanded) */}
       {expanded && (
         <>
-          <div className="text-sm text-slate-700 border-t pt-2">
+          <div className="text-sm text-slate-700 border-t pt-2 break-words">
             <LatexText text={tooltip.content} />
           </div>
 
