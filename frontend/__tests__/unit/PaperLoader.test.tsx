@@ -44,6 +44,11 @@ vi.mock('@/hooks/usePapers', () => ({
   }),
 }))
 
+// Mock ResizableLayout to just render the main panel
+vi.mock('@/components/reader/ResizableLayout', () => ({
+  default: ({ mainPanel }: any) => <div>{mainPanel}</div>,
+}))
+
 vi.mock('@/hooks/useTooltips', () => ({
   useTooltips: () => ({
     tooltipMap: mockTooltipsState.tooltipMap,

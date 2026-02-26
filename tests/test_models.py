@@ -281,3 +281,81 @@ class TestTooltipModel:
         repr_str = repr(tooltip)
         assert "Tooltip" in repr_str
         assert "bbbbbbbb" in repr_str  # First 8 chars of ID
+
+    def test_tooltip_pinning_defaults(self, test_db):
+        """Test that is_pinned defaults to False."""
+        paper = Paper(
+            id="paper_pin_test",
+            filename="test.tar.gz",
+            uploaded_at=datetime.now(UTC)
+        )
+        test_db.add(paper)
+        test_db.commit()
+
+        tooltip = Tooltip(
+            id="tooltip_pin_test",
+            paper_id="paper_pin_test",
+            dom_node_id="pin_node",
+            content="Test pinning",
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC)
+        )
+        test_db.add(tooltip)
+        test_db.commit()
+
+        retrieved = test_db.query(Tooltip).filter(Tooltip.id == "tooltip_pin_test").first()
+        assert retrieved.is_pinned is False
+
+    def test_tooltip_pinning_update(self, test_db):
+        """Test updating is_pinned field."""
+        paper = Paper(
+            id="paper_pin_update",
+            filename="test.tar.gz",
+            uploaded_at=datetime.now(UTC)
+        )
+        test_db.add(paper)
+        test_db.commit()
+
+        tooltip = Tooltip(
+            id="tooltip_pin_update",
+            paper_id="paper_pin_update",
+            dom_node_id="pin_update_node",
+            content="Test",
+            is_pinned=False,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC)
+        )
+        test_db.add(tooltip)
+        test_db.commit()
+
+        # Update to pinned
+        tooltip.is_pinned = True
+        test_db.commit()
+
+        retrieved = test_db.query(Tooltip).filter(Tooltip.id == "tooltip_pin_update").first()
+        assert retrieved.is_pinned is True
+
+    def test_tooltip_display_order(self, test_db):
+        """Test display_order field."""
+        paper = Paper(
+            id="paper_order_test",
+            filename="test.tar.gz",
+            uploaded_at=datetime.now(UTC)
+        )
+        test_db.add(paper)
+        test_db.commit()
+
+        tooltip = Tooltip(
+            id="tooltip_order_test",
+            paper_id="paper_order_test",
+            dom_node_id="order_node",
+            content="Test order",
+            display_order=5,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC)
+        )
+        test_db.add(tooltip)
+        test_db.commit()
+
+        retrieved = test_db.query(Tooltip).filter(Tooltip.id == "tooltip_order_test").first()
+        assert retrieved.display_order == 5

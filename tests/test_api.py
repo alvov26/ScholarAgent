@@ -292,6 +292,54 @@ class TestTooltipsEndpoints:
         )
         assert response.status_code == 404
 
+    def test_tooltip_pinning(self, api_client, paper_with_id):
+        """Test pinning and unpinning tooltips."""
+        # Create tooltip
+        create_response = api_client.post(
+            f"/api/papers/{paper_with_id}/tooltips",
+            json={"dom_node_id": "node_pin", "content": "Pin test"}
+        )
+        tooltip_id = create_response.json()["id"]
+
+        # Verify default is_pinned is False
+        assert create_response.json()["is_pinned"] is False
+
+        # Pin the tooltip
+        pin_response = api_client.put(
+            f"/api/papers/{paper_with_id}/tooltips/{tooltip_id}",
+            json={"content": "Pin test", "is_pinned": True}
+        )
+        assert pin_response.status_code == 200
+        assert pin_response.json()["is_pinned"] is True
+
+        # Unpin the tooltip
+        unpin_response = api_client.put(
+            f"/api/papers/{paper_with_id}/tooltips/{tooltip_id}",
+            json={"content": "Pin test", "is_pinned": False}
+        )
+        assert unpin_response.status_code == 200
+        assert unpin_response.json()["is_pinned"] is False
+
+    def test_tooltip_display_order(self, api_client, paper_with_id):
+        """Test setting display order for tooltips."""
+        # Create tooltip
+        create_response = api_client.post(
+            f"/api/papers/{paper_with_id}/tooltips",
+            json={"dom_node_id": "node_order", "content": "Order test"}
+        )
+        tooltip_id = create_response.json()["id"]
+
+        # Verify default display_order is None
+        assert create_response.json()["display_order"] is None
+
+        # Set display order
+        update_response = api_client.put(
+            f"/api/papers/{paper_with_id}/tooltips/{tooltip_id}",
+            json={"content": "Order test", "display_order": 5}
+        )
+        assert update_response.status_code == 200
+        assert update_response.json()["display_order"] == 5
+
 
 class TestArxivUploadEndpoint:
     """Tests for POST /api/papers/upload/arxiv."""
