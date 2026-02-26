@@ -12,8 +12,45 @@ export interface Paper {
   has_html: boolean;
 }
 
+// Section structure from backend (pre-extracted at compile time)
+export interface Section {
+  id: string;
+  title: string;
+  title_html: string;
+  level: number;
+  parent_id: string | null;
+  content_html: string;
+}
+
+// Equation structure from backend
+export interface Equation {
+  id: string;
+  latex: string | null;
+  is_display: boolean;
+  mathml: string;
+}
+
+// Citation structure from backend
+export interface Citation {
+  key: string;
+  text: string;
+  dom_node_id: string | null;
+}
+
+// Paper metadata from backend
+export interface PaperMetadata {
+  title?: string;
+  authors?: string[];
+  abstract?: string;
+}
+
 export interface PaperDetail extends Paper {
   html_content: string | null;
+  // Pre-extracted metadata (populated at compile time)
+  sections: Section[] | null;
+  equations: Equation[] | null;
+  citations: Citation[] | null;
+  paper_metadata: PaperMetadata | null;
 }
 
 export function usePapers() {

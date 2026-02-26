@@ -4,7 +4,7 @@ import re
 import uuid
 from datetime import datetime, UTC
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 import httpx
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Depends
@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.database.connection import get_db
 from backend.app.database.models import Paper, Tooltip
-from backend.app.compiler.latexml_compiler import compile_latex_to_html
+from backend.app.compiler.latexml_compiler import compile_latex_to_html, CompilationResult
 
 app = FastAPI(title="Scholar Agent API")
 app.add_middleware(
@@ -55,6 +55,11 @@ class PaperResponse(BaseModel):
 
 class PaperDetailResponse(PaperResponse):
     html_content: Optional[str] = None
+    # Pre-extracted metadata for frontend and agents
+    sections: Optional[List[Dict[str, Any]]] = None
+    equations: Optional[List[Dict[str, Any]]] = None
+    citations: Optional[List[Dict[str, Any]]] = None
+    paper_metadata: Optional[Dict[str, Any]] = None
 
 
 class TooltipCreate(BaseModel):
@@ -145,8 +150,15 @@ async def upload_paper(
     if compile_now:
         try:
             paper_assets_dir = ASSETS_DIR / file_hash
-            html = compile_latex_to_html(upload_path, file_hash, use_docker=USE_DOCKER, assets_dir=paper_assets_dir)
-            paper.html_content = html
+            result = compile_latex_to_html(upload_path, file_hash, use_docker=USE_DOCKER, assets_dir=paper_assets_dir)
+
+            # Store HTML and all extracted metadata
+            paper.html_content = result.html_content
+            paper.sections_data = result.sections
+            paper.equations_data = result.equations
+            paper.citations_data = result.citations
+            paper.paper_metadata = result.metadata
+            paper.latex_source = result.latex_source
             paper.compiled_at = datetime.now(UTC)
         except Exception as e:
             # Store paper without HTML, log error
@@ -190,8 +202,15 @@ async def upload_arxiv_source(
     if compile_now:
         try:
             paper_assets_dir = ASSETS_DIR / file_hash
-            html = compile_latex_to_html(archive_path, file_hash, use_docker=USE_DOCKER, assets_dir=paper_assets_dir)
-            paper.html_content = html
+            result = compile_latex_to_html(archive_path, file_hash, use_docker=USE_DOCKER, assets_dir=paper_assets_dir)
+
+            # Store HTML and all extracted metadata
+            paper.html_content = result.html_content
+            paper.sections_data = result.sections
+            paper.equations_data = result.equations
+            paper.citations_data = result.citations
+            paper.paper_metadata = result.metadata
+            paper.latex_source = result.latex_source
             paper.compiled_at = datetime.now(UTC)
         except Exception as e:
             paper.html_content = None
@@ -217,8 +236,15 @@ async def compile_paper(paper_id: str, db: Session = Depends(get_db)):
 
     try:
         paper_assets_dir = ASSETS_DIR / paper_id
-        html = compile_latex_to_html(source_path, paper_id, use_docker=USE_DOCKER, assets_dir=paper_assets_dir)
-        paper.html_content = html
+        result = compile_latex_to_html(source_path, paper_id, use_docker=USE_DOCKER, assets_dir=paper_assets_dir)
+
+        # Store HTML and all extracted metadata
+        paper.html_content = result.html_content
+        paper.sections_data = result.sections
+        paper.equations_data = result.equations
+        paper.citations_data = result.citations
+        paper.paper_metadata = result.metadata
+        paper.latex_source = result.latex_source
         paper.compiled_at = datetime.now(UTC)
         db.commit()
         db.refresh(paper)
@@ -237,7 +263,7 @@ async def list_papers(db: Session = Depends(get_db)):
 
 @app.get("/api/papers/{paper_id}", response_model=PaperDetailResponse)
 async def get_paper(paper_id: str, db: Session = Depends(get_db)):
-    """Get paper with compiled HTML."""
+    """Get paper with compiled HTML and pre-extracted metadata."""
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
@@ -249,7 +275,12 @@ async def get_paper(paper_id: str, db: Session = Depends(get_db)):
         uploaded_at=paper.uploaded_at,
         compiled_at=paper.compiled_at,
         has_html=paper.html_content is not None,
-        html_content=paper.html_content
+        html_content=paper.html_content,
+        # Pre-extracted metadata for frontend and agents
+        sections=paper.sections_data,
+        equations=paper.equations_data,
+        citations=paper.citations_data,
+        paper_metadata=paper.paper_metadata,
     )
 
 

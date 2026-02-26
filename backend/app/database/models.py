@@ -1,5 +1,5 @@
 from datetime import datetime, UTC
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Index, Boolean, Integer
+from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Index, Boolean, Integer, JSON
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 
@@ -22,6 +22,15 @@ class Paper(Base):
     html_content = Column(Text, nullable=True)  # Compiled HTML from LaTeXML
     uploaded_at = Column(DateTime, default=utcnow)
     compiled_at = Column(DateTime, nullable=True)
+
+    # Extracted metadata (populated at compile time for agent pipeline)
+    # Using JSON instead of JSONB for SQLite compatibility in tests
+    # PostgreSQL will still use JSON efficiently
+    sections_data = Column(JSON, nullable=True)     # Section hierarchy for TOC + agents
+    equations_data = Column(JSON, nullable=True)    # Equations with LaTeX source
+    citations_data = Column(JSON, nullable=True)    # Bibliography entries
+    paper_metadata = Column(JSON, nullable=True)    # Title, authors, abstract
+    latex_source = Column(Text, nullable=True)      # Raw main.tex content for agent context
 
     tooltips = relationship("Tooltip", back_populates="paper", cascade="all, delete-orphan")
 

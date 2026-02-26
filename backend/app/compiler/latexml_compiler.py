@@ -3,6 +3,7 @@ LaTeXML Compiler Service
 
 Compiles LaTeX sources to HTML5 + MathML using LaTeXML (via Docker or local installation).
 Post-processes HTML to inject stable data-id attributes for tooltip anchoring.
+Extracts structured metadata (sections, equations, citations) at compile time.
 """
 
 import hashlib
@@ -12,9 +13,205 @@ import subprocess
 import tarfile
 import tempfile
 import zipfile
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from html.parser import HTMLParser
+
+from bs4 import BeautifulSoup
+
+
+# =============================================================================
+# Compilation Result
+# =============================================================================
+
+@dataclass
+class CompilationResult:
+    """Structured result from LaTeXML compilation."""
+    html_content: str                           # Compiled HTML with data-ids
+    sections: List[Dict[str, Any]] = field(default_factory=list)    # Section hierarchy
+    equations: List[Dict[str, Any]] = field(default_factory=list)   # Equations with LaTeX
+    citations: List[Dict[str, Any]] = field(default_factory=list)   # Bibliography entries
+    metadata: Optional[Dict[str, Any]] = None   # Title, authors, abstract
+    latex_source: Optional[str] = None          # Raw main.tex content
+
+
+# =============================================================================
+# Metadata Extraction Functions
+# =============================================================================
+
+def extract_sections(html: str) -> List[Dict[str, Any]]:
+    """
+    Extract hierarchical section structure from compiled HTML.
+
+    This replaces the frontend parseTOC logic - both TOC and agents
+    will use this pre-extracted data.
+    """
+    soup = BeautifulSoup(html, 'html.parser')
+    headings = soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'], attrs={'data-id': True})
+
+    sections = []
+    stack: List[Dict[str, Any]] = []  # Track parent sections
+
+    for heading in headings:
+        level = int(heading.name[1])  # h1 -> 1, h2 -> 2
+        data_id = heading.get('data-id')
+
+        # Find parent in stack
+        while stack and stack[-1]['level'] >= level:
+            stack.pop()
+
+        parent_id = stack[-1]['id'] if stack else None
+
+        # Extract content between this heading and next heading
+        content_nodes = []
+        for sibling in heading.find_next_siblings():
+            if sibling.name and sibling.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+                break
+            content_nodes.append(str(sibling))
+
+        # Get title - preserve MathML but extract text for plain title
+        title_text = heading.get_text().strip()
+
+        # Get inner HTML of heading, removing only LaTeX text annotations
+        # We need innerHTML (contents only), not outerHTML (with the tag)
+        # Keep ltx_tag spans as they contain useful section numbers (e.g., "3.2.3")
+        title_clone = BeautifulSoup(str(heading), 'html.parser')
+        heading_tag = title_clone.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+        if heading_tag:
+            # Remove <text> elements (LaTeX annotations in MathML)
+            for text_elem in heading_tag.find_all('text'):
+                text_elem.decompose()
+            # Get inner HTML by joining all children
+            title_html = ''.join(str(child) for child in heading_tag.children).strip()
+        else:
+            title_html = title_text
+
+        section = {
+            'id': data_id,
+            'title': title_text,
+            'title_html': title_html,  # Preserve MathML in titles
+            'level': level,
+            'parent_id': parent_id,
+            'content_html': '\n'.join(content_nodes),
+        }
+
+        sections.append(section)
+        stack.append({'id': data_id, 'level': level})
+
+    return sections
+
+
+def extract_equations(html: str) -> List[Dict[str, Any]]:
+    """
+    Extract all equation blocks with their LaTeX source.
+
+    Useful for agents to analyze equations without re-parsing.
+    """
+    soup = BeautifulSoup(html, 'html.parser')
+    equations = []
+
+    for math_tag in soup.find_all('math', attrs={'data-id': True}):
+        math_id = math_tag.get('data-id')
+
+        # Try to extract LaTeX from MathML annotation
+        latex = _extract_latex_from_mathml(math_tag)
+
+        # Determine if display or inline
+        display_attr = math_tag.get('display', '')
+        is_display = display_attr == 'block'
+
+        equations.append({
+            'id': math_id,
+            'latex': latex,
+            'is_display': is_display,
+            'mathml': str(math_tag),
+        })
+
+    return equations
+
+
+def _extract_latex_from_mathml(math_tag) -> Optional[str]:
+    """Extract LaTeX from MathML annotation if present."""
+    # Check for <annotation encoding="application/x-tex">
+    annotation = math_tag.find('annotation', {'encoding': 'application/x-tex'})
+    if annotation:
+        return annotation.get_text()
+
+    # Also check for TeX annotation without full MIME type
+    annotation = math_tag.find('annotation', {'encoding': 'TeX'})
+    if annotation:
+        return annotation.get_text()
+
+    return None
+
+
+def extract_citations(html: str) -> List[Dict[str, Any]]:
+    """
+    Extract bibliography entries from compiled HTML.
+
+    Useful for future citation analysis and Semantic Scholar integration.
+    """
+    soup = BeautifulSoup(html, 'html.parser')
+    citations = []
+
+    # LaTeXML typically puts bibliography in a section with class ltx_bibliography
+    bib_section = soup.find(['section', 'div'], class_='ltx_bibliography')
+
+    if bib_section:
+        for entry in bib_section.find_all('li', class_='ltx_bibitem'):
+            cite_key = entry.get('id', '')
+            # Clean up key: bib.Author2023 -> Author2023
+            if cite_key.startswith('bib.'):
+                cite_key = cite_key[4:]
+
+            cite_text = entry.get_text().strip()
+            dom_id = entry.get('data-id')
+
+            citations.append({
+                'key': cite_key,
+                'text': cite_text,
+                'dom_node_id': dom_id,
+            })
+
+    return citations
+
+
+def extract_document_metadata(html: str) -> Optional[Dict[str, Any]]:
+    """
+    Extract paper metadata (title, authors, abstract) if present.
+
+    LaTeXML often includes this in the document header.
+    """
+    soup = BeautifulSoup(html, 'html.parser')
+    metadata: Dict[str, Any] = {}
+
+    # Extract title - LaTeXML uses ltx_title class
+    title_tag = soup.find(['h1', 'h2'], class_='ltx_title')
+    if title_tag:
+        metadata['title'] = title_tag.get_text().strip()
+
+    # Extract authors - LaTeXML uses ltx_creator or ltx_personname
+    authors = []
+    for author_tag in soup.find_all(['span', 'div'], class_=['ltx_creator', 'ltx_personname']):
+        author_text = author_tag.get_text().strip()
+        if author_text and author_text not in authors:
+            authors.append(author_text)
+    if authors:
+        metadata['authors'] = authors
+
+    # Extract abstract - LaTeXML uses ltx_abstract class
+    abstract_div = soup.find(['div', 'section'], class_='ltx_abstract')
+    if abstract_div:
+        # Get the content, skipping the "Abstract" heading if present
+        abstract_text = abstract_div.get_text().strip()
+        # Remove common prefixes
+        for prefix in ['Abstract', 'ABSTRACT', 'Abstract.', 'Abstract:']:
+            if abstract_text.startswith(prefix):
+                abstract_text = abstract_text[len(prefix):].strip()
+        metadata['abstract'] = abstract_text
+
+    return metadata if metadata else None
 
 
 class DataIdInjector(HTMLParser):
@@ -131,9 +328,9 @@ class LaTeXMLCompiler:
         self.use_docker = use_docker
         self.docker_image = docker_image
 
-    def compile(self, source_path: Path, paper_id: str, assets_dir: Optional[Path] = None) -> str:
+    def compile(self, source_path: Path, paper_id: str, assets_dir: Optional[Path] = None) -> CompilationResult:
         """
-        Compile LaTeX source to HTML.
+        Compile LaTeX source to HTML with metadata extraction.
 
         Args:
             source_path: Path to .tar.gz, .zip, or .tex file
@@ -141,7 +338,7 @@ class LaTeXMLCompiler:
             assets_dir: Optional directory to save generated assets (images, CSS, etc.)
 
         Returns:
-            Compiled HTML string with injected data-id attributes
+            CompilationResult with HTML, sections, equations, citations, and metadata
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             work_dir = Path(tmpdir)
@@ -157,6 +354,13 @@ class LaTeXMLCompiler:
             main_tex = self._find_main_tex(source_dir)
             if not main_tex:
                 raise ValueError("No main .tex file found in source")
+
+            # Read LaTeX source for agent context
+            latex_source: Optional[str] = None
+            try:
+                latex_source = main_tex.read_text(encoding='utf-8', errors='ignore')
+            except Exception:
+                pass  # Non-critical if source can't be read
 
             # Compile
             if self.use_docker:
@@ -176,7 +380,20 @@ class LaTeXMLCompiler:
             # Post-process: inject data-id attributes
             html = inject_data_ids(html, paper_id)
 
-            return html
+            # Extract metadata at compile time
+            sections = extract_sections(html)
+            equations = extract_equations(html)
+            citations = extract_citations(html)
+            doc_metadata = extract_document_metadata(html)
+
+            return CompilationResult(
+                html_content=html,
+                sections=sections,
+                equations=equations,
+                citations=citations,
+                metadata=doc_metadata,
+                latex_source=latex_source,
+            )
 
     def _prepare_source(self, source_path: Path, dest_dir: Path) -> None:
         """Extract archive or copy single file to destination directory."""
@@ -366,9 +583,14 @@ class LaTeXMLCompiler:
 
 
 # Convenience function for API usage
-def compile_latex_to_html(source_path: Path, paper_id: str, use_docker: bool = True, assets_dir: Optional[Path] = None) -> str:
+def compile_latex_to_html(
+    source_path: Path,
+    paper_id: str,
+    use_docker: bool = True,
+    assets_dir: Optional[Path] = None
+) -> CompilationResult:
     """
-    Compile LaTeX source to HTML with data-id injection.
+    Compile LaTeX source to HTML with metadata extraction.
 
     Args:
         source_path: Path to source archive (.tar.gz, .zip) or .tex file
@@ -377,7 +599,7 @@ def compile_latex_to_html(source_path: Path, paper_id: str, use_docker: bool = T
         assets_dir: Optional directory to save generated assets
 
     Returns:
-        Compiled HTML string
+        CompilationResult with HTML and extracted metadata
     """
     compiler = LaTeXMLCompiler(use_docker=use_docker)
     return compiler.compile(source_path, paper_id, assets_dir=assets_dir)

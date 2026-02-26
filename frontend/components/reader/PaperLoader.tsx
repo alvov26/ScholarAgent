@@ -1,14 +1,45 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { usePapers, Paper, PaperDetail } from "@/hooks/usePapers";
+import { usePapers, Paper, PaperDetail, Section } from "@/hooks/usePapers";
 import { useTooltips } from "@/hooks/useTooltips";
 import { HTMLRenderer } from "./HTMLRenderer";
 import ResizableLayout from "./ResizableLayout";
 import NavigationPanel from "./NavigationPanel";
 import TooltipPanel from "./TooltipPanel";
-import { parseTOC } from "@/utils/parseTOC";
+import { parseTOC, TOCNode } from "@/utils/parseTOC";
 import { Loader2, Upload, ExternalLink, Trash2, RefreshCw, FileText, AlertCircle } from "lucide-react";
+
+/**
+ * Build TOC hierarchy from flat sections array (from backend).
+ * The backend provides a flat list with parent_id references.
+ */
+function buildTOCFromSections(sections: Section[]): TOCNode[] {
+  const nodeMap = new Map<string, TOCNode>();
+  const root: TOCNode[] = [];
+
+  // Create nodes
+  for (const section of sections) {
+    nodeMap.set(section.id, {
+      id: section.id,
+      title: section.title_html, // Use title_html to preserve MathML
+      level: section.level,
+      children: [],
+    });
+  }
+
+  // Build hierarchy
+  for (const section of sections) {
+    const node = nodeMap.get(section.id)!;
+    if (section.parent_id && nodeMap.has(section.parent_id)) {
+      nodeMap.get(section.parent_id)!.children.push(node);
+    } else {
+      root.push(node);
+    }
+  }
+
+  return root;
+}
 
 export default function PaperLoader() {
   const {
@@ -117,11 +148,16 @@ export default function PaperLoader() {
   const error = papersError || tooltipsError;
   const loading = papersLoading || tooltipsLoading || !!status;
 
-  // Parse TOC from current paper
+  // Use pre-extracted sections from backend, with fallback to client-side parsing
   const toc = useMemo(() => {
+    // Prefer pre-extracted sections from backend (Phase 0 optimization)
+    if (currentPaper?.sections && currentPaper.sections.length > 0) {
+      return buildTOCFromSections(currentPaper.sections);
+    }
+    // Fallback: parse on client-side for papers compiled before Phase 0
     if (!currentPaper?.html_content) return [];
     return parseTOC(currentPaper.html_content);
-  }, [currentPaper?.html_content]);
+  }, [currentPaper?.sections, currentPaper?.html_content]);
 
   // Handle navigation to section
   const handleNavigate = useCallback((dataId: string) => {

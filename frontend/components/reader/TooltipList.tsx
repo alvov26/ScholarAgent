@@ -159,9 +159,11 @@ function GroupSection({ group, onEdit, onDelete, onPin, onNavigate }: GroupSecti
         style={{ paddingLeft: `${indentLevel * 12 + 8}px` }}
       >
         {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-        <span className="flex-1 text-left truncate" title={group.title}>
-          {group.title}
-        </span>
+        <span
+          className="flex-1 text-left truncate"
+          title={group.title.replace(/<[^>]*>/g, '')}
+          dangerouslySetInnerHTML={{ __html: group.title }}
+        />
         <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
           {totalCount}
         </span>
