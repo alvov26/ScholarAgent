@@ -32,6 +32,9 @@ class Paper(Base):
     paper_metadata = Column(JSON, nullable=True)    # Title, authors, abstract
     latex_source = Column(Text, nullable=True)      # Raw main.tex content for agent context
 
+    # Knowledge graph (populated by agent pipeline)
+    knowledge_graph = Column(JSON, nullable=True)   # {nodes: [...], edges: [...], metadata: {...}}
+
     tooltips = relationship("Tooltip", back_populates="paper", cascade="all, delete-orphan")
 
     def __repr__(self):

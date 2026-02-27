@@ -425,6 +425,90 @@ async def delete_tooltip(paper_id: str, tooltip_id: str, db: Session = Depends(g
 
 
 # =============================================================================
+# Knowledge Graph
+# =============================================================================
+
+class KnowledgeGraphResponse(BaseModel):
+    nodes: List[Dict[str, Any]]
+    edges: List[Dict[str, Any]]
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class KnowledgeGraphBuildResponse(BaseModel):
+    status: str
+    node_count: int
+    edge_count: int
+    errors: Optional[List[str]] = None
+
+
+@app.post("/api/papers/{paper_id}/knowledge-graph/build", response_model=KnowledgeGraphBuildResponse)
+async def build_knowledge_graph(paper_id: str, db: Session = Depends(get_db)):
+    """
+    Trigger knowledge graph construction for a paper.
+
+    This runs the LangGraph agent pipeline to extract symbols, definitions,
+    theorems, and their relationships from the paper content.
+    """
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    if not paper.html_content:
+        raise HTTPException(status_code=400, detail="Paper not compiled yet")
+
+    if not paper.sections_data:
+        raise HTTPException(status_code=400, detail="Paper has no extracted sections. Please recompile.")
+
+    try:
+        from backend.app.agents.knowledge_graph import build_kg_for_paper
+
+        graph_data = build_kg_for_paper(paper_id)
+
+        # Store graph data in paper record (for now, until we add kg_nodes table)
+        # In Phase 2, we'll store in dedicated tables
+        paper.knowledge_graph = graph_data
+        db.commit()
+
+        return KnowledgeGraphBuildResponse(
+            status="success",
+            node_count=graph_data["metadata"]["node_count"],
+            edge_count=graph_data["metadata"]["edge_count"],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Knowledge graph building failed: {str(e)}")
+
+
+@app.get("/api/papers/{paper_id}/knowledge-graph", response_model=KnowledgeGraphResponse)
+async def get_knowledge_graph(paper_id: str, db: Session = Depends(get_db)):
+    """Get the knowledge graph for a paper."""
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    if not paper.knowledge_graph:
+        raise HTTPException(status_code=404, detail="Knowledge graph not built yet. POST to /knowledge-graph/build first.")
+
+    return KnowledgeGraphResponse(
+        nodes=paper.knowledge_graph.get("nodes", []),
+        edges=paper.knowledge_graph.get("edges", []),
+        metadata=paper.knowledge_graph.get("metadata"),
+    )
+
+
+@app.delete("/api/papers/{paper_id}/knowledge-graph")
+async def delete_knowledge_graph(paper_id: str, db: Session = Depends(get_db)):
+    """Delete the knowledge graph for a paper (for rebuilding)."""
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    paper.knowledge_graph = None
+    db.commit()
+
+    return {"status": "success", "paper_id": paper_id}
+
+
+# =============================================================================
 # Helper Functions
 # =============================================================================
 
