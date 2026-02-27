@@ -8,7 +8,7 @@ import ResizableLayout from "./ResizableLayout";
 import NavigationPanel from "./NavigationPanel";
 import TooltipPanel from "./TooltipPanel";
 import { parseTOC, TOCNode } from "@/utils/parseTOC";
-import { Loader2, Upload, ExternalLink, Trash2, RefreshCw, FileText, AlertCircle } from "lucide-react";
+import { Loader2, Upload, ExternalLink, Trash2, RefreshCw, FileText, AlertCircle, Network } from "lucide-react";
 
 /**
  * Build TOC hierarchy from flat sections array (from backend).
@@ -130,6 +130,32 @@ export default function PaperLoader() {
     setStatus("");
   };
 
+  // Handle build knowledge graph
+  const handleBuildGraph = async () => {
+    if (!selectedPaperId) return;
+
+    setStatus("Building knowledge graph...");
+    clearPapersError();
+
+    try {
+      const res = await fetch(`/api/papers/${selectedPaperId}/knowledge-graph/build`, {
+        method: 'POST',
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.detail || 'Failed to build graph');
+      }
+
+      const result = await res.json();
+      setStatus(`Graph built: ${result.node_count} nodes, ${result.edge_count} edges`);
+      setTimeout(() => setStatus(""), 3000);
+    } catch (error: any) {
+      setStatus(`Error: ${error.message}`);
+      setTimeout(() => setStatus(""), 3000);
+    }
+  };
+
   // Handle delete
   const handleDelete = async () => {
     if (!selectedPaperId) return;
@@ -200,6 +226,7 @@ export default function PaperLoader() {
   // Left panel content
   const leftPanel = (
     <NavigationPanel
+      paperId={selectedPaperId || ''}
       toc={toc}
       onNavigate={handleNavigate}
     />
@@ -336,6 +363,14 @@ export default function PaperLoader() {
             >
               <RefreshCw size={12} />
               Recompile
+            </button>
+            <button
+              onClick={handleBuildGraph}
+              disabled={loading}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50"
+            >
+              <Network size={12} />
+              Build Graph
             </button>
             <button
               onClick={handleDelete}
