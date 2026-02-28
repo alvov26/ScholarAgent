@@ -11,10 +11,12 @@ import ReactFlow, {
   useEdgesState,
   MarkerType,
   ConnectionLineType,
+  EdgeMouseHandler,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { GraphNode } from './GraphNode';
 import { KnowledgeGraphProgress } from './KnowledgeGraphProgress';
+import { EdgeInfoPanel } from './EdgeInfoPanel';
 import { Loader2, AlertCircle, Network } from 'lucide-react';
 
 // Custom node types
@@ -133,6 +135,12 @@ export function KnowledgeGraphView({ paperId, onNavigate }: KnowledgeGraphViewPr
   const [error, setError] = useState<string | null>(null);
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [isBuilding, setIsBuilding] = useState(false);
+  const [selectedEdge, setSelectedEdge] = useState<{
+    sourceLabel: string;
+    targetLabel: string;
+    type: string;
+    evidence?: string;
+  } | null>(null);
 
   // Fetch graph data
   const fetchGraphData = useCallback(() => {
@@ -224,6 +232,29 @@ export function KnowledgeGraphView({ paperId, onNavigate }: KnowledgeGraphViewPr
     setError(errorMsg);
   }, []);
 
+  // Handle edge click to show evidence
+  const onEdgeClick: EdgeMouseHandler = useCallback((event, edge) => {
+    event.stopPropagation();
+
+    // Find source and target nodes to get their labels
+    const sourceNode = nodes.find(n => n.id === edge.source);
+    const targetNode = nodes.find(n => n.id === edge.target);
+
+    if (sourceNode && targetNode) {
+      setSelectedEdge({
+        sourceLabel: sourceNode.data.label,
+        targetLabel: targetNode.data.label,
+        type: edge.label as string || edge.type,
+        evidence: edge.data?.evidence,
+      });
+    }
+  }, [nodes]);
+
+  // Close edge info panel when clicking on the background
+  const onPaneClick = useCallback(() => {
+    setSelectedEdge(null);
+  }, []);
+
   // Show progress during build
   if (isBuilding) {
     return (
@@ -292,12 +323,14 @@ export function KnowledgeGraphView({ paperId, onNavigate }: KnowledgeGraphViewPr
       )}
 
       {/* Graph */}
-      <div className="w-full" style={{ height: 'calc(100% - 36px)' }}>
+      <div className="w-full relative" style={{ height: 'calc(100% - 36px)' }}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
+          onEdgeClick={onEdgeClick}
+          onPaneClick={onPaneClick}
           nodeTypes={nodeTypes}
           connectionLineType={ConnectionLineType.SmoothStep}
           fitView
@@ -319,6 +352,17 @@ export function KnowledgeGraphView({ paperId, onNavigate }: KnowledgeGraphViewPr
             maskColor="rgba(255, 255, 255, 0.8)"
           />
         </ReactFlow>
+
+        {/* Edge info panel */}
+        {selectedEdge && (
+          <EdgeInfoPanel
+            sourceLabel={selectedEdge.sourceLabel}
+            targetLabel={selectedEdge.targetLabel}
+            relationshipType={selectedEdge.type}
+            evidence={selectedEdge.evidence}
+            onClose={() => setSelectedEdge(null)}
+          />
+        )}
       </div>
     </div>
   );
