@@ -62,7 +62,7 @@ class GraphState(TypedDict):
 class Symbol(BaseModel):
     """A mathematical symbol extracted from the paper"""
     symbol: str = Field(description="The symbol as it appears (e.g., α_t, x)")
-    latex: str = Field(description="LaTeX representation (e.g., \\alpha_t)")
+    latex: str = Field(description="LaTeX representation wrapped in dollar signs for rendering (e.g., $\\alpha_t$, $x$)")
     context: str = Field(description="Brief explanation of what it represents (1 sentence)")
     is_definition: bool = Field(description="Is this where the symbol is first defined/introduced?")
 
@@ -121,8 +121,8 @@ from a section of text.
 
 For each symbol, provide:
 1. The symbol itself (as it appears in text, e.g., α_t, x, W)
-2. Its LaTeX representation (e.g., \\alpha_t, x, W)
-3. A brief context (1 sentence explaining what it represents)
+2. Its LaTeX representation wrapped in dollar signs (e.g., $\\alpha_t$, $x$, $W$)
+3. A brief context (1 sentence explaining what it represents, use $...$ for any math)
 4. Whether this is where the symbol is first defined/introduced
 
 Focus on:
@@ -132,7 +132,9 @@ Focus on:
 - Matrix/vector notation (W, b, X)
 - Special notation (\\mathcal{{L}}, \\mathbb{{R}})
 
-Skip common mathematical constants (π, e) unless they have special meaning in this paper."""
+Skip common mathematical constants (π, e) unless they have special meaning in this paper.
+
+IMPORTANT: Wrap all LaTeX in dollar signs for proper rendering (e.g., $\\alpha_t$, not \\alpha_t)."""
 
 SYMBOL_USER_PROMPT = """Section: {section_title}
 
@@ -147,7 +149,7 @@ Identify both formal and informal definitions.
 
 A definition includes:
 - The term being defined
-- The definition text (what it means)
+- The definition text (what it means, use $...$ for any math notation)
 - Whether it's formal (numbered, e.g., "Definition 3.2") or informal
 
 Look for patterns like:
@@ -158,7 +160,9 @@ Look for patterns like:
 - Bold/italic terms followed by descriptions
 - "X denotes..."
 
-Be precise: only extract statements that actually define a concept, not just mentions."""
+Be precise: only extract statements that actually define a concept, not just mentions.
+
+IMPORTANT: Wrap all LaTeX/math notation in dollar signs for proper rendering (e.g., $\\alpha$, $x \\in \\mathbb{R}$)."""
 
 DEFINITION_USER_PROMPT = """Section: {section_title}
 
@@ -175,7 +179,7 @@ For each, extract:
 - Type (theorem/lemma/corollary/proposition)
 - Number (e.g., "3.2")
 - Name (if given, e.g., "Convergence Theorem")
-- Statement (the actual claim being made)
+- Statement (the actual claim being made, use $...$ for any math notation)
 
 Look for patterns like:
 - "Theorem N.M: ..."
@@ -183,7 +187,9 @@ Look for patterns like:
 - "Corollary: ..."
 - "Proposition N.M: ..."
 
-Only extract formal statements with clear theorem-like structure, not informal claims."""
+Only extract formal statements with clear theorem-like structure, not informal claims.
+
+IMPORTANT: Wrap all LaTeX/math notation in dollar signs for proper rendering (e.g., $f(x) = 0$, $\\forall x \\in X$)."""
 
 THEOREM_USER_PROMPT = """Section: {section_title}
 

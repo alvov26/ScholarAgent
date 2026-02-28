@@ -3,6 +3,7 @@
 import { memo } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
 import { Variable, BookOpen, Lightbulb } from 'lucide-react';
+import { LatexText } from './LatexText';
 
 interface GraphNodeData {
   label: string;
@@ -78,13 +79,17 @@ function GraphNodeComponent({ data }: NodeProps<GraphNodeData>) {
 
       {/* Label */}
       <div className={`text-sm font-semibold ${config.textColor} truncate`}>
-        {data.label}
+        {data.latex ? (
+          <LatexText text={data.latex} className="inline" />
+        ) : (
+          data.label
+        )}
       </div>
 
       {/* Description preview */}
       {description && (
         <div className="text-[10px] text-slate-500 mt-1 line-clamp-2">
-          {description}
+          <LatexText text={description} />
         </div>
       )}
 
