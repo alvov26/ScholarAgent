@@ -9,6 +9,8 @@ interface EdgeInfoPanelProps {
   relationshipType: string;
   evidence?: string;
   onClose: () => void;
+  onClickSource?: () => void;
+  onClickTarget?: () => void;
 }
 
 // Edge colors matching KnowledgeGraphView
@@ -26,6 +28,8 @@ export function EdgeInfoPanel({
   relationshipType,
   evidence,
   onClose,
+  onClickSource,
+  onClickTarget,
 }: EdgeInfoPanelProps) {
   const color = edgeColors[relationshipType] || '#94a3b8';
 
@@ -37,19 +41,31 @@ export function EdgeInfoPanel({
           <h3 className="text-sm font-semibold text-slate-700 mb-1">
             Relationship
           </h3>
-          <div className="flex items-center gap-2 text-xs">
-            <span className="font-medium text-slate-600">
+          <div className="flex items-center gap-2 text-xs flex-wrap">
+            <button
+              onClick={onClickSource}
+              className={`font-medium text-slate-600 ${
+                onClickSource ? 'hover:text-indigo-600 hover:underline cursor-pointer' : ''
+              }`}
+              disabled={!onClickSource}
+            >
               <LatexText text={sourceLabel} />
-            </span>
+            </button>
             <span
               className="px-2 py-0.5 rounded text-white font-medium"
               style={{ backgroundColor: color }}
             >
               {relationshipType}
             </span>
-            <span className="font-medium text-slate-600">
+            <button
+              onClick={onClickTarget}
+              className={`font-medium text-slate-600 ${
+                onClickTarget ? 'hover:text-indigo-600 hover:underline cursor-pointer' : ''
+              }`}
+              disabled={!onClickTarget}
+            >
               <LatexText text={targetLabel} />
-            </span>
+            </button>
           </div>
         </div>
         <button

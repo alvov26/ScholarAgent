@@ -12,11 +12,13 @@ import ReactFlow, {
   MarkerType,
   ConnectionLineType,
   EdgeMouseHandler,
+  NodeMouseHandler,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { GraphNode } from './GraphNode';
 import { KnowledgeGraphProgress } from './KnowledgeGraphProgress';
 import { EdgeInfoPanel } from './EdgeInfoPanel';
+import { NodeInfoPanel } from './NodeInfoPanel';
 import { Loader2, AlertCircle, Network } from 'lucide-react';
 
 // Custom node types
@@ -136,10 +138,21 @@ export function KnowledgeGraphView({ paperId, onNavigate }: KnowledgeGraphViewPr
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [isBuilding, setIsBuilding] = useState(false);
   const [selectedEdge, setSelectedEdge] = useState<{
+    sourceId: string;
+    targetId: string;
     sourceLabel: string;
     targetLabel: string;
     type: string;
     evidence?: string;
+  } | null>(null);
+  const [selectedNode, setSelectedNode] = useState<{
+    label: string;
+    nodeType: 'symbol' | 'definition' | 'theorem';
+    context?: string;
+    definition?: string;
+    statement?: string;
+    latex?: string;
+    onNavigate: () => void;
   } | null>(null);
 
   // Fetch graph data
@@ -232,6 +245,24 @@ export function KnowledgeGraphView({ paperId, onNavigate }: KnowledgeGraphViewPr
     setError(errorMsg);
   }, []);
 
+  // Handle node click to show full details
+  const onNodeClick: NodeMouseHandler = useCallback((event, node) => {
+    event.stopPropagation();
+
+    setSelectedNode({
+      label: node.data.label,
+      nodeType: node.data.nodeType,
+      context: node.data.context,
+      definition: node.data.definition,
+      statement: node.data.statement,
+      latex: node.data.latex,
+      onNavigate: node.data.onNavigate,
+    });
+
+    // Close edge panel if open
+    setSelectedEdge(null);
+  }, []);
+
   // Handle edge click to show evidence
   const onEdgeClick: EdgeMouseHandler = useCallback((event, edge) => {
     event.stopPropagation();
@@ -242,17 +273,40 @@ export function KnowledgeGraphView({ paperId, onNavigate }: KnowledgeGraphViewPr
 
     if (sourceNode && targetNode) {
       setSelectedEdge({
+        sourceId: edge.source,
+        targetId: edge.target,
         sourceLabel: sourceNode.data.label,
         targetLabel: targetNode.data.label,
         type: edge.label as string || edge.type,
         evidence: edge.data?.evidence,
       });
+
+      // Close node panel if open
+      setSelectedNode(null);
     }
   }, [nodes]);
 
-  // Close edge info panel when clicking on the background
+  // Helper to show node info by ID
+  const showNodeById = useCallback((nodeId: string) => {
+    const node = nodes.find(n => n.id === nodeId);
+    if (node) {
+      setSelectedNode({
+        label: node.data.label,
+        nodeType: node.data.nodeType,
+        context: node.data.context,
+        definition: node.data.definition,
+        statement: node.data.statement,
+        latex: node.data.latex,
+        onNavigate: node.data.onNavigate,
+      });
+      setSelectedEdge(null);
+    }
+  }, [nodes]);
+
+  // Close info panels when clicking on the background
   const onPaneClick = useCallback(() => {
     setSelectedEdge(null);
+    setSelectedNode(null);
   }, []);
 
   // Show progress during build
@@ -329,6 +383,7 @@ export function KnowledgeGraphView({ paperId, onNavigate }: KnowledgeGraphViewPr
           edges={edges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
+          onNodeClick={onNodeClick}
           onEdgeClick={onEdgeClick}
           onPaneClick={onPaneClick}
           nodeTypes={nodeTypes}
@@ -353,6 +408,23 @@ export function KnowledgeGraphView({ paperId, onNavigate }: KnowledgeGraphViewPr
           />
         </ReactFlow>
 
+        {/* Node info panel */}
+        {selectedNode && (
+          <NodeInfoPanel
+            label={selectedNode.label}
+            nodeType={selectedNode.nodeType}
+            context={selectedNode.context}
+            definition={selectedNode.definition}
+            statement={selectedNode.statement}
+            latex={selectedNode.latex}
+            onNavigate={() => {
+              selectedNode.onNavigate();
+              setSelectedNode(null);
+            }}
+            onClose={() => setSelectedNode(null)}
+          />
+        )}
+
         {/* Edge info panel */}
         {selectedEdge && (
           <EdgeInfoPanel
@@ -360,6 +432,8 @@ export function KnowledgeGraphView({ paperId, onNavigate }: KnowledgeGraphViewPr
             targetLabel={selectedEdge.targetLabel}
             relationshipType={selectedEdge.type}
             evidence={selectedEdge.evidence}
+            onClickSource={() => showNodeById(selectedEdge.sourceId)}
+            onClickTarget={() => showNodeById(selectedEdge.targetId)}
             onClose={() => setSelectedEdge(null)}
           />
         )}

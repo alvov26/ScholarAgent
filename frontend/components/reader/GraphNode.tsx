@@ -59,7 +59,6 @@ function GraphNodeComponent({ data }: NodeProps<GraphNodeData>) {
         cursor-pointer transition-all duration-150
         hover:shadow-md min-w-[120px] max-w-[180px]
       `}
-      onClick={data.onNavigate}
       title={description ? `${data.label}: ${description}` : data.label}
     >
       {/* Input handle */}
