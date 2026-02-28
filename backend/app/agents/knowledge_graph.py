@@ -162,7 +162,7 @@ Look for patterns like:
 
 Be precise: only extract statements that actually define a concept, not just mentions.
 
-IMPORTANT: Wrap all LaTeX/math notation in dollar signs for proper rendering (e.g., $\\alpha$, $x \\in \\mathbb{R}$)."""
+IMPORTANT: Wrap all LaTeX/math notation in dollar signs for proper rendering (e.g., $\\alpha$, $x \\in \\mathbb{{R}}$)."""
 
 DEFINITION_USER_PROMPT = """Section: {section_title}
 
@@ -341,7 +341,7 @@ def extract_symbols(state: GraphState) -> GraphState:
                     "dom_node_id": section.get("id"),
                 })
         except Exception as e:
-            print(f"✗ Error")
+            print(f"✗ Error: {str(e)}")
             state["errors"].append(f"Symbol extraction failed for section {section.get('id')}: {str(e)}")
 
     print(f"  → Total: {len(symbols)} symbols extracted")
@@ -397,7 +397,7 @@ def extract_definitions(state: GraphState) -> GraphState:
                     "dom_node_id": section.get("id"),
                 })
         except Exception as e:
-            print(f"✗ Error")
+            print(f"✗ Error: {str(e)}")
             state["errors"].append(f"Definition extraction failed for section {section.get('id')}: {str(e)}")
 
     print(f"  → Total: {len(definitions)} definitions extracted")
@@ -453,7 +453,7 @@ def extract_theorems(state: GraphState) -> GraphState:
                     "dom_node_id": section.get("id"),
                 })
         except Exception as e:
-            print(f"✗ Error")
+            print(f"✗ Error: {str(e)}")
             state["errors"].append(f"Theorem extraction failed for section {section.get('id')}: {str(e)}")
 
     print(f"  → Total: {len(theorems)} theorems extracted")
@@ -518,7 +518,7 @@ def extract_dependencies(state: GraphState) -> GraphState:
                     "section_id": section.get("id"),
                 })
         except Exception as e:
-            print(f"✗ Error")
+            print(f"✗ Error: {str(e)}")
             state["errors"].append(f"Dependency extraction failed for section {section.get('id')}: {str(e)}")
 
     print(f"  → Total: {len(relationships)} relationships extracted")
@@ -686,7 +686,7 @@ def build_graph(state: GraphState) -> GraphState:
 def create_knowledge_graph_workflow() -> StateGraph:
     """Create the LangGraph workflow for knowledge graph extraction."""
     workflow = StateGraph(GraphState)
-    
+
     # Add nodes
     workflow.add_node("load_data", load_paper_data)
     workflow.add_node("extract_symbols", extract_symbols)
@@ -694,18 +694,25 @@ def create_knowledge_graph_workflow() -> StateGraph:
     workflow.add_node("extract_theorems", extract_theorems)
     workflow.add_node("extract_dependencies", extract_dependencies)
     workflow.add_node("build_graph", build_graph)
-    
+
     # Define edges
     workflow.set_entry_point("load_data")
-    
-    # After loading data, run extractions (could be parallel in future)
+
+    # After loading data, run extractions in parallel
+    # These are independent and can run concurrently
     workflow.add_edge("load_data", "extract_symbols")
-    workflow.add_edge("extract_symbols", "extract_definitions")
-    workflow.add_edge("extract_definitions", "extract_theorems")
+    workflow.add_edge("load_data", "extract_definitions")
+    workflow.add_edge("load_data", "extract_theorems")
+
+    # Dependencies need all three extractions to complete
+    workflow.add_edge("extract_symbols", "extract_dependencies")
+    workflow.add_edge("extract_definitions", "extract_dependencies")
     workflow.add_edge("extract_theorems", "extract_dependencies")
+
+    # Build graph after dependencies extracted
     workflow.add_edge("extract_dependencies", "build_graph")
     workflow.add_edge("build_graph", END)
-    
+
     return workflow
 
 
