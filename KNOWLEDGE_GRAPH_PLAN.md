@@ -11,6 +11,19 @@ Build an agentic system that automatically extracts semantic structure from comp
 
 ---
 
+## Implementation Status
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| Phase 0: Compile-Time Metadata | ✅ Complete | Sections, equations, citations extracted at compile time |
+| Phase 1: LangGraph Pipeline | ✅ Complete | Parallel extraction with progress tracking |
+| Phase 2: Graph Storage | ✅ Complete (simplified) | Using JSONB on Paper model (not separate tables) |
+| Phase 3: Frontend Visualization | ✅ Complete | React Flow with real-time progress UI |
+
+**See also:** `KNOWLEDGE_GRAPH_SCAFFOLD.md` for a concise reference on the pipeline architecture.
+
+---
+
 ## Architecture: Three-Phase Approach
 
 ### Phase 0: Preparatory Work - Compile-Time Metadata Extraction
@@ -468,19 +481,19 @@ const toc = useMemo(() => {
 
 ### Implementation Checklist
 
-- [ ] Create `CompilationResult` dataclass
-- [ ] Implement `extract_sections()` function
-- [ ] Implement `extract_equations()` function
-- [ ] Implement `extract_citations()` function
-- [ ] Implement `extract_document_metadata()` function
-- [ ] Update `LaTeXMLCompiler.compile()` to return `CompilationResult`
-- [ ] Update convenience function signature
-- [ ] Add database migration for new JSONB columns
-- [ ] Update Paper model with new fields
-- [ ] Update API upload endpoint to store metadata
-- [ ] Update API get_paper endpoint to return metadata
-- [ ] Update frontend to use pre-extracted sections
-- [ ] Test with sample papers (arXiv + local)
+- [x] Create `CompilationResult` dataclass
+- [x] Implement `extract_sections()` function
+- [x] Implement `extract_equations()` function
+- [x] Implement `extract_citations()` function
+- [x] Implement `extract_document_metadata()` function
+- [x] Update `LaTeXMLCompiler.compile()` to return `CompilationResult`
+- [x] Update convenience function signature
+- [x] Add database migration for new JSONB columns
+- [x] Update Paper model with new fields
+- [x] Update API upload endpoint to store metadata
+- [x] Update API get_paper endpoint to return metadata
+- [x] Update frontend to use pre-extracted sections
+- [x] Test with sample papers (arXiv + local)
 
 ---
 
@@ -1742,12 +1755,15 @@ export default function NavigationPanel({ paperId, toc, onNavigate }: Navigation
 ## Success Criteria
 
 ### MVP Complete When:
-- ✅ Agent pipeline extracts symbols, definitions, theorems, dependencies
-- ✅ Graph stored in PostgreSQL
-- ✅ API endpoint returns graph JSON
-- ✅ Frontend renders graph with React Flow
-- ✅ Clicking node navigates to corresponding section in paper
-- ✅ Toggle between TOC and Graph view works
+- [x] Agent pipeline extracts symbols, definitions, theorems, dependencies
+- [x] Graph stored in PostgreSQL (simplified: JSONB on Paper model)
+- [x] API endpoint returns graph JSON
+- [x] Frontend renders graph with React Flow
+- [x] Clicking node navigates to corresponding section in paper
+- [x] Toggle between TOC and Graph view works
+- [x] **Bonus:** Real-time progress tracking via SSE
+- [x] **Bonus:** Parallel extraction for faster builds
+- [x] **Bonus:** LaTeX rendering in graph nodes
 
 ### Known Limitations (Acceptable for MVP):
 - Simple grid layout (not hierarchical)
@@ -1755,15 +1771,15 @@ export default function NavigationPanel({ paperId, toc, onNavigate }: Navigation
 - No incremental updates (rebuild required)
 - No graph filtering/search
 - LLM extraction may miss edge cases
+- SSE requires direct backend connection (bypasses Next.js proxy)
 
 ---
 
-## Next Steps
+## Future Improvements
 
-1. Create `backend/app/agents/knowledge_graph.py` scaffold
-2. Implement section parser (no LLM, pure parsing)
-3. Set up LangGraph workflow
-4. Test with one sample paper
-5. Iterate on prompt engineering for extraction quality
-
-Ready to start implementation?
+- [ ] Hierarchical layout using `dagre`
+- [ ] Graph filtering by node type
+- [ ] Search within graph
+- [ ] Migrate to dedicated `kg_nodes` / `kg_edges` tables for better querying
+- [ ] Support for figures and tables as node types
+- [ ] Cross-paper entity linking

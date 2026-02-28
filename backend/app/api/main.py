@@ -7,11 +7,13 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 import httpx
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Depends
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+import asyncio
+import json
 
 from backend.app.database.connection import get_db
 from backend.app.database.models import Paper, Tooltip
@@ -32,6 +34,10 @@ UPLOADS_DIR = PROJECT_ROOT / "storage" / "uploads"
 ASSETS_DIR = PROJECT_ROOT / "storage" / "assets"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Knowledge graph build progress tracking
+# Format: {paper_id: {stage: str, progress: {stage_name: {current: int, total: int}}}}
+kg_build_progress: Dict[str, Dict[str, Any]] = {}
 
 # Configuration
 USE_DOCKER = os.getenv("LATEXML_USE_DOCKER", "true").lower() == "true"
@@ -441,13 +447,105 @@ class KnowledgeGraphBuildResponse(BaseModel):
     errors: Optional[List[str]] = None
 
 
-@app.post("/api/papers/{paper_id}/knowledge-graph/build", response_model=KnowledgeGraphBuildResponse)
-async def build_knowledge_graph(paper_id: str, db: Session = Depends(get_db)):
+@app.get("/api/papers/{paper_id}/knowledge-graph/build/progress")
+async def knowledge_graph_build_progress(paper_id: str):
     """
-    Trigger knowledge graph construction for a paper.
+    SSE endpoint for real-time knowledge graph build progress.
 
-    This runs the LangGraph agent pipeline to extract symbols, definitions,
-    theorems, and their relationships from the paper content.
+    Returns Server-Sent Events with progress updates.
+    """
+    async def event_generator():
+        """Generate SSE events for progress updates."""
+        try:
+            # Send initial connection confirmation
+            yield f"data: {json.dumps({'type': 'connected', 'paper_id': paper_id})}\n\n"
+
+            # Poll for progress updates
+            last_progress = None
+            while True:
+                if paper_id in kg_build_progress:
+                    current_progress = kg_build_progress[paper_id]
+
+                    # Only send if progress changed
+                    if current_progress != last_progress:
+                        yield f"data: {json.dumps(current_progress)}\n\n"
+                        last_progress = current_progress.copy()
+
+                    # Check if complete or error
+                    if current_progress.get('stage') in ['complete', 'error']:
+                        # Clean up after a delay
+                        await asyncio.sleep(2)
+                        if paper_id in kg_build_progress:
+                            del kg_build_progress[paper_id]
+                        break
+
+                await asyncio.sleep(0.5)  # Poll every 500ms
+        except asyncio.CancelledError:
+            # Client disconnected
+            pass
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
+    )
+
+
+def _run_kg_build_task(paper_id: str):
+    """Background task to build knowledge graph."""
+    from backend.app.database.connection import SessionLocal
+    from backend.app.agents.knowledge_graph import build_kg_for_paper
+
+    db = SessionLocal()
+
+    def progress_callback(stage: str, current: int, total: int):
+        """Update progress for SSE clients."""
+        if paper_id in kg_build_progress:
+            kg_build_progress[paper_id] = {
+                "stage": "extracting",
+                "progress": {
+                    **kg_build_progress[paper_id].get("progress", {}),
+                    stage: {"current": current, "total": total}
+                }
+            }
+
+    try:
+        print(f"[KG Build Task] Starting build for paper {paper_id}")
+        graph_data = build_kg_for_paper(paper_id, progress_callback=progress_callback)
+
+        # Store graph data in paper record
+        paper = db.query(Paper).filter(Paper.id == paper_id).first()
+        if paper:
+            paper.knowledge_graph = graph_data
+            db.commit()
+            print(f"[KG Build Task] Build complete for paper {paper_id}")
+
+        # Mark as complete
+        kg_build_progress[paper_id] = {
+            "stage": "complete",
+            "progress": {},
+            "node_count": graph_data["metadata"]["node_count"],
+            "edge_count": graph_data["metadata"]["edge_count"],
+        }
+    except Exception as e:
+        print(f"[KG Build Task] Build failed for paper {paper_id}: {str(e)}")
+        # Mark as error
+        kg_build_progress[paper_id] = {"stage": "error", "error": str(e)}
+    finally:
+        db.close()
+
+
+@app.post("/api/papers/{paper_id}/knowledge-graph/build")
+async def build_knowledge_graph(paper_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    """
+    Trigger knowledge graph construction for a paper (async background task).
+
+    Returns immediately with status 202 Accepted. Use the progress endpoint
+    to monitor build status.
     """
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
     if not paper:
@@ -459,23 +557,17 @@ async def build_knowledge_graph(paper_id: str, db: Session = Depends(get_db)):
     if not paper.sections_data:
         raise HTTPException(status_code=400, detail="Paper has no extracted sections. Please recompile.")
 
-    try:
-        from backend.app.agents.knowledge_graph import build_kg_for_paper
+    # Check if already building
+    if paper_id in kg_build_progress and kg_build_progress[paper_id].get("stage") == "extracting":
+        raise HTTPException(status_code=409, detail="Build already in progress")
 
-        graph_data = build_kg_for_paper(paper_id)
+    # Initialize progress tracking
+    kg_build_progress[paper_id] = {"stage": "starting", "progress": {}}
 
-        # Store graph data in paper record (for now, until we add kg_nodes table)
-        # In Phase 2, we'll store in dedicated tables
-        paper.knowledge_graph = graph_data
-        db.commit()
+    # Start background task
+    background_tasks.add_task(_run_kg_build_task, paper_id)
 
-        return KnowledgeGraphBuildResponse(
-            status="success",
-            node_count=graph_data["metadata"]["node_count"],
-            edge_count=graph_data["metadata"]["edge_count"],
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Knowledge graph building failed: {str(e)}")
+    return {"status": "accepted", "message": "Build started in background"}
 
 
 @app.get("/api/papers/{paper_id}/knowledge-graph", response_model=KnowledgeGraphResponse)

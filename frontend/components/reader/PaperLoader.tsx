@@ -74,6 +74,27 @@ export default function PaperLoader() {
     fetchPapers();
   }, [fetchPapers]);
 
+  // Listen for knowledge graph build completion/error events
+  useEffect(() => {
+    const handleBuildComplete = (e: CustomEvent<{ nodeCount: number; edgeCount: number }>) => {
+      setStatus(`Graph built: ${e.detail.nodeCount} nodes, ${e.detail.edgeCount} edges`);
+      setTimeout(() => setStatus(""), 3000);
+    };
+
+    const handleBuildError = (e: CustomEvent<{ error: string }>) => {
+      setStatus(`Build error: ${e.detail.error}`);
+      setTimeout(() => setStatus(""), 5000);
+    };
+
+    window.addEventListener('kg-build-complete', handleBuildComplete as EventListener);
+    window.addEventListener('kg-build-error', handleBuildError as EventListener);
+
+    return () => {
+      window.removeEventListener('kg-build-complete', handleBuildComplete as EventListener);
+      window.removeEventListener('kg-build-error', handleBuildError as EventListener);
+    };
+  }, []);
+
   // Load selected paper
   const loadPaper = useCallback(async (paperId: string) => {
     setStatus("Loading paper...");
@@ -137,6 +158,9 @@ export default function PaperLoader() {
     setStatus("Building knowledge graph...");
     clearPapersError();
 
+    // Emit event to trigger progress UI
+    window.dispatchEvent(new CustomEvent('kg-build-start'));
+
     try {
       const res = await fetch(`/api/papers/${selectedPaperId}/knowledge-graph/build`, {
         method: 'POST',
@@ -148,11 +172,11 @@ export default function PaperLoader() {
       }
 
       const result = await res.json();
-      setStatus(`Graph built: ${result.node_count} nodes, ${result.edge_count} edges`);
-      setTimeout(() => setStatus(""), 3000);
+      // Build is now async, status will be cleared when progress completes
+      setStatus(`Build started: ${result.message || 'Processing...'}`);
     } catch (error: any) {
       setStatus(`Error: ${error.message}`);
-      setTimeout(() => setStatus(""), 3000);
+      setTimeout(() => setStatus(""), 5000);
     }
   };
 

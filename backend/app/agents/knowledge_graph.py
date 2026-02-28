@@ -14,8 +14,13 @@ Pipeline:
 """
 
 import os
-from typing import TypedDict, List, Dict, Any, Optional
+from typing import TypedDict, List, Dict, Any, Optional, Annotated
+try:
+    from typing import NotRequired
+except ImportError:
+    from typing_extensions import NotRequired
 from pydantic import BaseModel, Field
+import operator
 
 from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END
@@ -33,26 +38,29 @@ load_dotenv()
 class GraphState(TypedDict):
     """Shared state passed between agents"""
     paper_id: str
-    
+
     # Pre-extracted data from Phase 0 (already in database)
     sections: List[Dict[str, Any]]
     equations: List[Dict[str, Any]]
     citations: List[Dict[str, Any]]
     latex_source: Optional[str]
-    
-    # Agent-extracted entities
-    symbols: List[Dict[str, Any]]
-    definitions: List[Dict[str, Any]]
-    theorems: List[Dict[str, Any]]
-    
+
+    # Agent-extracted entities (use Annotated with operator.add for concurrent updates)
+    symbols: Annotated[List[Dict[str, Any]], operator.add]
+    definitions: Annotated[List[Dict[str, Any]], operator.add]
+    theorems: Annotated[List[Dict[str, Any]], operator.add]
+
     # Relationships
     relationships: List[Dict[str, Any]]
-    
+
     # Final output
     graph_data: Dict[str, Any]
-    
-    # Error tracking
-    errors: List[str]
+
+    # Error tracking (use Annotated for concurrent error collection)
+    errors: Annotated[List[str], operator.add]
+
+    # Progress reporting (optional callback)
+    progress_callback: NotRequired[Any]
 
 
 # =============================================================================
@@ -293,6 +301,12 @@ def _strip_html_tags(html: str) -> str:
     return soup.get_text(separator=' ', strip=True)
 
 
+def _report_progress(state: GraphState, stage: str, current: int, total: int):
+    """Helper to report progress if callback is available."""
+    if state.get("progress_callback"):
+        state["progress_callback"](stage, current, total)
+
+
 def extract_symbols(state: GraphState) -> GraphState:
     """Extract mathematical symbols using LLM."""
     print(f"\n[1/4] Extracting symbols from {len(state['sections'])} sections...")
@@ -309,6 +323,8 @@ def extract_symbols(state: GraphState) -> GraphState:
 
     symbols = []
     sections_to_process = [s for s in state["sections"] if len(_strip_html_tags(s.get("content_html", ""))) >= 50]
+
+    _report_progress(state, "symbols", 0, len(sections_to_process))
 
     for idx, section in enumerate(sections_to_process, 1):
         try:
@@ -340,13 +356,17 @@ def extract_symbols(state: GraphState) -> GraphState:
                     "section_id": section.get("id"),
                     "dom_node_id": section.get("id"),
                 })
+
+            _report_progress(state, "symbols", idx, len(sections_to_process))
+
         except Exception as e:
             print(f"✗ Error: {str(e)}")
             state["errors"].append(f"Symbol extraction failed for section {section.get('id')}: {str(e)}")
+            _report_progress(state, "symbols", idx, len(sections_to_process))
 
     print(f"  → Total: {len(symbols)} symbols extracted")
-    state["symbols"] = symbols
-    return state
+    # Return only the keys we're updating (for parallel execution compatibility)
+    return {"symbols": symbols, "errors": state.get("errors", [])}
 
 
 def extract_definitions(state: GraphState) -> GraphState:
@@ -365,6 +385,8 @@ def extract_definitions(state: GraphState) -> GraphState:
 
     definitions = []
     sections_to_process = [s for s in state["sections"] if len(_strip_html_tags(s.get("content_html", ""))) >= 50]
+
+    _report_progress(state, "definitions", 0, len(sections_to_process))
 
     for idx, section in enumerate(sections_to_process, 1):
         try:
@@ -396,13 +418,17 @@ def extract_definitions(state: GraphState) -> GraphState:
                     "section_id": section.get("id"),
                     "dom_node_id": section.get("id"),
                 })
+
+            _report_progress(state, "definitions", idx, len(sections_to_process))
+
         except Exception as e:
             print(f"✗ Error: {str(e)}")
             state["errors"].append(f"Definition extraction failed for section {section.get('id')}: {str(e)}")
+            _report_progress(state, "definitions", idx, len(sections_to_process))
 
     print(f"  → Total: {len(definitions)} definitions extracted")
-    state["definitions"] = definitions
-    return state
+    # Return only the keys we're updating (for parallel execution compatibility)
+    return {"definitions": definitions, "errors": state.get("errors", [])}
 
 
 def extract_theorems(state: GraphState) -> GraphState:
@@ -421,6 +447,8 @@ def extract_theorems(state: GraphState) -> GraphState:
 
     theorems = []
     sections_to_process = [s for s in state["sections"] if len(_strip_html_tags(s.get("content_html", ""))) >= 50]
+
+    _report_progress(state, "theorems", 0, len(sections_to_process))
 
     for idx, section in enumerate(sections_to_process, 1):
         try:
@@ -452,13 +480,17 @@ def extract_theorems(state: GraphState) -> GraphState:
                     "section_id": section.get("id"),
                     "dom_node_id": section.get("id"),
                 })
+
+            _report_progress(state, "theorems", idx, len(sections_to_process))
+
         except Exception as e:
             print(f"✗ Error: {str(e)}")
             state["errors"].append(f"Theorem extraction failed for section {section.get('id')}: {str(e)}")
+            _report_progress(state, "theorems", idx, len(sections_to_process))
 
     print(f"  → Total: {len(theorems)} theorems extracted")
-    state["theorems"] = theorems
-    return state
+    # Return only the keys we're updating (for parallel execution compatibility)
+    return {"theorems": theorems, "errors": state.get("errors", [])}
 
 
 def extract_dependencies(state: GraphState) -> GraphState:
@@ -484,6 +516,8 @@ def extract_dependencies(state: GraphState) -> GraphState:
 
     relationships = []
     sections_to_process = [s for s in state["sections"] if len(_strip_html_tags(s.get("content_html", ""))) >= 50]
+
+    _report_progress(state, "dependencies", 0, len(sections_to_process))
 
     for idx, section in enumerate(sections_to_process, 1):
         try:
@@ -517,9 +551,13 @@ def extract_dependencies(state: GraphState) -> GraphState:
                     "evidence": rel.evidence_text,
                     "section_id": section.get("id"),
                 })
+
+            _report_progress(state, "dependencies", idx, len(sections_to_process))
+
         except Exception as e:
             print(f"✗ Error: {str(e)}")
             state["errors"].append(f"Dependency extraction failed for section {section.get('id')}: {str(e)}")
+            _report_progress(state, "dependencies", idx, len(sections_to_process))
 
     print(f"  → Total: {len(relationships)} relationships extracted")
     state["relationships"] = relationships
@@ -716,21 +754,22 @@ def create_knowledge_graph_workflow() -> StateGraph:
     return workflow
 
 
-def build_kg_for_paper(paper_id: str) -> Dict[str, Any]:
+def build_kg_for_paper(paper_id: str, progress_callback=None) -> Dict[str, Any]:
     """
     Build knowledge graph for a paper.
-    
+
     This is the main entry point called by the API.
-    
+
     Args:
         paper_id: The paper ID to build graph for
-        
+        progress_callback: Optional callback function(stage, current, total)
+
     Returns:
         graph_data: Dict with nodes and edges
     """
     workflow = create_knowledge_graph_workflow()
     app = workflow.compile()
-    
+
     initial_state: GraphState = {
         "paper_id": paper_id,
         "sections": [],
@@ -743,6 +782,7 @@ def build_kg_for_paper(paper_id: str) -> Dict[str, Any]:
         "relationships": [],
         "graph_data": {},
         "errors": [],
+        "progress_callback": progress_callback,
     }
     
     result = app.invoke(initial_state)

@@ -14,6 +14,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { GraphNode } from './GraphNode';
+import { KnowledgeGraphProgress } from './KnowledgeGraphProgress';
 import { Loader2, AlertCircle, Network } from 'lucide-react';
 
 // Custom node types
@@ -131,9 +132,10 @@ export function KnowledgeGraphView({ paperId, onNavigate }: KnowledgeGraphViewPr
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [graphData, setGraphData] = useState<GraphData | null>(null);
+  const [isBuilding, setIsBuilding] = useState(false);
 
   // Fetch graph data
-  useEffect(() => {
+  const fetchGraphData = useCallback(() => {
     setLoading(true);
     setError(null);
 
@@ -195,6 +197,43 @@ export function KnowledgeGraphView({ paperId, onNavigate }: KnowledgeGraphViewPr
         setLoading(false);
       });
   }, [paperId, setNodes, setEdges, onNavigate]);
+
+  // Initial fetch
+  useEffect(() => {
+    fetchGraphData();
+  }, [fetchGraphData]);
+
+  // Listen for build events from parent (PaperLoader)
+  useEffect(() => {
+    const handleBuildStart = () => {
+      setIsBuilding(true);
+      setError(null);
+    };
+
+    window.addEventListener('kg-build-start', handleBuildStart);
+    return () => window.removeEventListener('kg-build-start', handleBuildStart);
+  }, []);
+
+  const handleBuildComplete = useCallback(() => {
+    setIsBuilding(false);
+    fetchGraphData();
+  }, [fetchGraphData]);
+
+  const handleBuildError = useCallback((errorMsg: string) => {
+    setIsBuilding(false);
+    setError(errorMsg);
+  }, []);
+
+  // Show progress during build
+  if (isBuilding) {
+    return (
+      <KnowledgeGraphProgress
+        paperId={paperId}
+        onComplete={handleBuildComplete}
+        onError={handleBuildError}
+      />
+    );
+  }
 
   // Loading state
   if (loading) {
