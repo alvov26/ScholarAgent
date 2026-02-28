@@ -310,6 +310,12 @@ def extract_symbols(state: GraphState) -> GraphState:
             section_title = section.get("title", "Untitled")
 
             print(f"  [{idx}/{len(sections_to_process)}] {section_title[:50]}...", end=" ", flush=True)
+            if os.getenv("KG_DEBUG"):
+                print()
+                print(f"      Section ID: {section.get('id')}")
+                print(f"      Content length: {len(content_text)} chars")
+                print(f"      Content preview: {content_text[:200].strip()}...")
+                print(f"      Processing...", end=" ", flush=True)
 
             response = chain.invoke({
                 "section_title": section_title,
@@ -360,6 +366,12 @@ def extract_definitions(state: GraphState) -> GraphState:
             section_title = section.get("title", "Untitled")
 
             print(f"  [{idx}/{len(sections_to_process)}] {section_title[:50]}...", end=" ", flush=True)
+            if os.getenv("KG_DEBUG"):
+                print()
+                print(f"      Section ID: {section.get('id')}")
+                print(f"      Content length: {len(content_text)} chars")
+                print(f"      Content preview: {content_text[:200].strip()}...")
+                print(f"      Processing...", end=" ", flush=True)
 
             response = chain.invoke({
                 "section_title": section_title,
@@ -410,6 +422,12 @@ def extract_theorems(state: GraphState) -> GraphState:
             section_title = section.get("title", "Untitled")
 
             print(f"  [{idx}/{len(sections_to_process)}] {section_title[:50]}...", end=" ", flush=True)
+            if os.getenv("KG_DEBUG"):
+                print()
+                print(f"      Section ID: {section.get('id')}")
+                print(f"      Content length: {len(content_text)} chars")
+                print(f"      Content preview: {content_text[:200].strip()}...")
+                print(f"      Processing...", end=" ", flush=True)
 
             response = chain.invoke({
                 "section_title": section_title,
@@ -467,6 +485,12 @@ def extract_dependencies(state: GraphState) -> GraphState:
             section_title = section.get("title", "Untitled")
 
             print(f"  [{idx}/{len(sections_to_process)}] {section_title[:50]}...", end=" ", flush=True)
+            if os.getenv("KG_DEBUG"):
+                print()
+                print(f"      Section ID: {section.get('id')}")
+                print(f"      Content length: {len(content_text)} chars")
+                print(f"      Content preview: {content_text[:200].strip()}...")
+                print(f"      Processing...", end=" ", flush=True)
 
             response = chain.invoke({
                 "section_title": section_title,

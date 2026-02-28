@@ -91,6 +91,12 @@ export function HTMLRenderer({
           margin-bottom: 0.5em;
         }
 
+        /* Remove top margin from first heading (title) */
+        .html-renderer > h1:first-child,
+        .html-renderer > *:first-child h1:first-of-type {
+          margin-top: 0;
+        }
+
         .html-renderer h1 { font-size: 2em; }
         .html-renderer h2 { font-size: 1.5em; }
         .html-renderer h3 { font-size: 1.25em; }

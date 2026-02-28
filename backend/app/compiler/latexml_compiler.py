@@ -53,7 +53,12 @@ def extract_sections(html: str) -> List[Dict[str, Any]]:
     sections = []
     stack: List[Dict[str, Any]] = []  # Track parent sections
 
-    for heading in headings:
+    # Build a list of all heading positions for content extraction
+    heading_positions = []
+    for h in headings:
+        heading_positions.append(h)
+
+    for i, heading in enumerate(headings):
         level = int(heading.name[1])  # h1 -> 1, h2 -> 2
         data_id = heading.get('data-id')
 
@@ -63,12 +68,27 @@ def extract_sections(html: str) -> List[Dict[str, Any]]:
 
         parent_id = stack[-1]['id'] if stack else None
 
-        # Extract content between this heading and next heading
+        # Extract content between this heading and the next heading (anywhere in document)
+        # We need to collect siblings, but stop at any element containing a heading
         content_nodes = []
+
+        # Use find_next_siblings() but check if any sibling CONTAINS a heading
         for sibling in heading.find_next_siblings():
-            if sibling.name and sibling.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+            # Skip navigable strings (whitespace, text nodes)
+            if not hasattr(sibling, 'name') or sibling.name is None:
+                continue
+
+            # Stop if this sibling IS a heading
+            if sibling.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
                 break
-            content_nodes.append(str(sibling))
+
+            # Stop if this sibling CONTAINS a heading (e.g., div wrapping abstract section)
+            if sibling.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+                break
+
+            # Collect block-level elements
+            if sibling.name in ['p', 'div', 'section', 'figure', 'table', 'ul', 'ol', 'dl', 'blockquote', 'pre', 'span']:
+                content_nodes.append(str(sibling))
 
         # Get title - preserve MathML but extract text for plain title
         title_text = heading.get_text().strip()
