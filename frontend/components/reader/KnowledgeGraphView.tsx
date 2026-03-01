@@ -76,48 +76,76 @@ interface GraphData {
 }
 
 /**
- * Hierarchical layout using dagre.
- * Arranges nodes based on dependencies (left = no dependencies, right = many dependencies).
+ * Hybrid layout: hierarchical for connected nodes, compact grid for isolated nodes.
  */
 function hierarchicalLayout(nodes: Node[], edges: Edge[]): { nodes: Node[]; edges: Edge[] } {
-  const dagreGraph = new dagre.graphlib.Graph();
-  dagreGraph.setDefaultEdgeLabel(() => ({}));
-
-  // Configure layout direction: Left-to-Right for better horizontal spread
-  dagreGraph.setGraph({
-    rankdir: 'LR',   // Left to Right - better for wide graphs
-    nodesep: 100,    // Vertical spacing between nodes (in same rank)
-    ranksep: 200,    // Horizontal spacing between ranks
-    marginx: 50,
-    marginy: 50,
-    ranker: 'network-simplex',  // Better ranking algorithm
-  });
-
   const nodeWidth = 180;
   const nodeHeight = 80;
 
-  // Add nodes to dagre graph
-  nodes.forEach((node) => {
-    dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
-  });
-
-  // Add edges to dagre graph
+  // Identify which nodes are connected (have at least one edge)
+  const connectedNodeIds = new Set<string>();
   edges.forEach((edge) => {
-    dagreGraph.setEdge(edge.source, edge.target);
+    connectedNodeIds.add(edge.source);
+    connectedNodeIds.add(edge.target);
   });
 
-  // Calculate layout
-  dagre.layout(dagreGraph);
+  const connectedNodes = nodes.filter(n => connectedNodeIds.has(n.id));
+  const isolatedNodes = nodes.filter(n => !connectedNodeIds.has(n.id));
 
-  // Apply calculated positions to nodes
-  nodes.forEach((node) => {
-    const nodeWithPosition = dagreGraph.node(node.id);
-    node.position = {
-      // Dagre returns center coordinates, we need top-left
-      x: nodeWithPosition.x - nodeWidth / 2,
-      y: nodeWithPosition.y - nodeHeight / 2,
-    };
-  });
+  // Layout connected nodes hierarchically using dagre
+  if (connectedNodes.length > 0) {
+    const dagreGraph = new dagre.graphlib.Graph();
+    dagreGraph.setDefaultEdgeLabel(() => ({}));
+
+    dagreGraph.setGraph({
+      rankdir: 'LR',   // Left to Right
+      nodesep: 100,    // Vertical spacing between nodes
+      ranksep: 200,    // Horizontal spacing between ranks
+      marginx: 50,
+      marginy: 50,
+      ranker: 'network-simplex',
+    });
+
+    // Add connected nodes to dagre
+    connectedNodes.forEach((node) => {
+      dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
+    });
+
+    // Add edges
+    edges.forEach((edge) => {
+      dagreGraph.setEdge(edge.source, edge.target);
+    });
+
+    // Calculate layout
+    dagre.layout(dagreGraph);
+
+    // Apply positions
+    connectedNodes.forEach((node) => {
+      const nodeWithPosition = dagreGraph.node(node.id);
+      node.position = {
+        x: nodeWithPosition.x - nodeWidth / 2,
+        y: nodeWithPosition.y - nodeHeight / 2,
+      };
+    });
+  }
+
+  // Layout isolated nodes in a compact grid at the bottom-right
+  if (isolatedNodes.length > 0) {
+    const cols = Math.ceil(Math.sqrt(isolatedNodes.length)); // Square-ish grid
+    const startX = 50;  // Start at left edge
+    const startY = connectedNodes.length > 0
+      ? Math.max(...connectedNodes.map(n => n.position.y)) + nodeHeight + 200  // Below connected graph
+      : 50;  // Or at top if no connected nodes
+
+    isolatedNodes.forEach((node, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      node.position = {
+        x: startX + col * (nodeWidth + 40),
+        y: startY + row * (nodeHeight + 40),
+      };
+    });
+  }
 
   return { nodes, edges };
 }
