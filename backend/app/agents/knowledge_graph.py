@@ -14,13 +14,15 @@ Pipeline:
 """
 
 import os
-from typing import TypedDict, List, Dict, Any, Optional, Annotated
+import time
+from typing import TypedDict, List, Dict, Any, Optional, Annotated, Callable
 try:
     from typing import NotRequired
 except ImportError:
     from typing_extensions import NotRequired
 from pydantic import BaseModel, Field
 import operator
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
 from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END
@@ -29,6 +31,109 @@ from langchain_core.prompts import ChatPromptTemplate
 
 # Load environment variables
 load_dotenv()
+
+
+# =============================================================================
+# Timeout Utilities
+# =============================================================================
+
+class TimeoutException(Exception):
+    """Raised when an operation times out"""
+    pass
+
+
+def run_with_timeout(func: Callable, timeout_seconds: int, *args, **kwargs):
+    """
+    Run a function with a timeout using ThreadPoolExecutor.
+
+    Thread-safe alternative to signal.alarm() which only works in main thread.
+    """
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(func, *args, **kwargs)
+        try:
+            return future.result(timeout=timeout_seconds)
+        except FuturesTimeoutError:
+            raise TimeoutException(f"Operation timed out after {timeout_seconds} seconds")
+
+
+def is_rate_limit_error(exception: Exception) -> bool:
+    """Check if an exception is a rate limit error (429)"""
+    error_str = str(exception)
+    return "429" in error_str or "rate_limit" in error_str.lower()
+
+
+def is_retryable_error(exception: Exception) -> bool:
+    """Check if an exception is worth retrying"""
+    error_str = str(exception)
+    # Retry on rate limits, timeouts, and transient server errors
+    retryable_patterns = [
+        "429",  # Rate limit
+        "rate_limit",
+        "503",  # Service unavailable
+        "502",  # Bad gateway
+        "500",  # Internal server error (sometimes transient)
+        "timeout",
+        "connection",
+    ]
+    return any(pattern in error_str.lower() for pattern in retryable_patterns)
+
+
+def run_with_retry(func: Callable, max_retries: int = 3, base_delay: float = 2.0, timeout_seconds: int = 120, *args, **kwargs):
+    """
+    Run a function with exponential backoff retry logic.
+
+    Args:
+        func: The function to call
+        max_retries: Maximum number of retry attempts (default: 3)
+        base_delay: Base delay in seconds for exponential backoff (default: 2.0)
+        timeout_seconds: Timeout for each individual attempt (default: 120)
+        *args, **kwargs: Arguments to pass to func
+
+    Returns:
+        Result from func
+
+    Raises:
+        The last exception if all retries fail
+    """
+    last_exception = None
+
+    for attempt in range(max_retries + 1):  # +1 because first call is attempt 0
+        try:
+            # Run with timeout
+            return run_with_timeout(func, timeout_seconds, *args, **kwargs)
+
+        except TimeoutException as e:
+            last_exception = e
+            if attempt < max_retries:
+                delay = base_delay * (2 ** attempt)  # Exponential backoff
+                print(f"\n      Timeout, retrying in {delay:.1f}s... (attempt {attempt + 1}/{max_retries})", end=" ", flush=True)
+                time.sleep(delay)
+            else:
+                raise
+
+        except Exception as e:
+            last_exception = e
+
+            # Check if error is retryable
+            if not is_retryable_error(e):
+                raise  # Don't retry non-retryable errors
+
+            if attempt < max_retries:
+                # Calculate delay with extra time for rate limits
+                if is_rate_limit_error(e):
+                    delay = base_delay * (3 ** attempt)  # More aggressive backoff for rate limits
+                    print(f"\n      Rate limit hit, waiting {delay:.1f}s... (attempt {attempt + 1}/{max_retries})", end=" ", flush=True)
+                else:
+                    delay = base_delay * (2 ** attempt)
+                    print(f"\n      Error ({type(e).__name__}), retrying in {delay:.1f}s... (attempt {attempt + 1}/{max_retries})", end=" ", flush=True)
+
+                time.sleep(delay)
+            else:
+                raise  # All retries exhausted
+
+    # Should never reach here, but just in case
+    if last_exception:
+        raise last_exception
 
 
 # =============================================================================
@@ -84,6 +189,7 @@ class Definition(BaseModel):
     """A definition extracted from the paper"""
     term: str = Field(description="The term being defined")
     definition_text: str = Field(description="The definition itself")
+    summary: str = Field(description="1-2 sentence summary of the definition for quick understanding")
     is_formal: bool = Field(description="Is this a numbered/formal definition (e.g., 'Definition 3.2')?")
     definition_number: Optional[str] = Field(default=None, description="The number if formal (e.g., '3.2')")
 
@@ -99,6 +205,7 @@ class Theorem(BaseModel):
     number: str = Field(description="The number (e.g., '3.2')")
     name: Optional[str] = Field(default=None, description="Optional name (e.g., 'Convergence Theorem')")
     statement: str = Field(description="The actual theorem statement")
+    summary: str = Field(description="1-2 sentence summary of what the theorem establishes")
 
 
 class TheoremExtractionOutput(BaseModel):
@@ -124,53 +231,115 @@ class RelationshipExtractionOutput(BaseModel):
 # =============================================================================
 
 SYMBOL_SYSTEM_PROMPT = """You are a mathematical symbol extractor for academic papers.
-Your task is to identify and extract all mathematical symbols, variables, and notation
-from a section of text.
+Extract ONLY mathematically significant symbols that represent core concepts, variables, or functions in the paper's theoretical framework.
+
+EXTRACT:
+- Mathematical variables with specific meaning: $\\alpha$ (smoothness parameter), $t$ (time variable), $\\theta$ (angle)
+- Functions and operators: $f(x)$ (objective function), $\\nabla$ (gradient), $\\mathcal{{L}}$ (Lagrangian), $H$ (Hamiltonian)
+- Probability and statistics: $p(x|y)$ (conditional probability), $\\mu$ (mean), $\\sigma^2$ (variance), $\\mathbb{{E}}$ (expectation)
+- Sets and spaces: $\\mathbb{{R}}^n$ (n-dimensional real space), $\\Omega$ (sample space), $X$ (domain)
+- Matrix/vector notation: $A$ (matrix), $v$ (vector), $x_i$ (indexed element)
+- Constants with paper-specific meaning: $c$ (speed of light in a physics paper), $\\lambda$ (decay constant)
+
+DO NOT EXTRACT:
+- Plain numbers or measurements: "1.45 TB", "8,000", "256", "0.001", "32 GB"
+- Section/equation/figure references: "Section 3", "Figure 2", "Eq. 4", "Table 1"
+- Generic placeholder variables mentioned only once without mathematical definition
+- Non-mathematical abbreviations: "RAM", "GPU", "CPU", "API", "URL"
+- Method/definition acronyms: "DPO", "SimPO", "RLHF", "SGD", "Adam" (these are definitions, not symbols)
+- Model names: "GPT-4", "BERT", "ResNet", "Transformer" (these are proper nouns, not mathematical symbols)
+- Universal constants without special treatment: $\\pi$, $e$ (unless given paper-specific interpretation)
+- Index variables with no substantive role: $i$, $j$, $k$ (unless they represent something meaningful)
+
+EXAMPLES:
+
+Good extraction:
+Symbol: $\\lambda_k$
+Context: The $k$-th eigenvalue of the Laplacian operator, characterizes oscillation frequency
+Is definition: true
+
+Good extraction:
+Symbol: $\\mathcal{{H}}$
+Context: Hilbert space of square-integrable functions on the domain $\\Omega$
+Is definition: true
+
+Bad extraction (too generic):
+Symbol: $n$
+Context: A number
+Is definition: false
+
+Bad extraction (not a symbol):
+Symbol: 8,000
+Context: The number of iterations
+Is definition: false
+
+Bad extraction (trivial index):
+Symbol: $i$
+Context: Loop index
+Is definition: false
 
 For each symbol, provide:
-1. The symbol itself (as it appears in text, e.g., α_t, x, W)
-2. Its LaTeX representation wrapped in dollar signs (e.g., $\\alpha_t$, $x$, $W$)
-3. A brief context (1 sentence explaining what it represents, use $...$ for any math)
-4. Whether this is where the symbol is first defined/introduced
+1. The symbol in LaTeX wrapped in dollar signs (e.g., $\\alpha_t$, $\\mathcal{{H}}$)
+2. A brief context explaining its mathematical role (1 sentence, use $...$ for math)
+3. Whether this is where the symbol is first formally defined/introduced
 
-Focus on:
-- Greek letters (α, β, θ, etc.)
-- Subscripted/superscripted variables (x_t, W with superscripts)
-- Mathematical operators and functions (∇, L, f)
-- Matrix/vector notation (W, b, X)
-- Special notation (\\mathcal{{L}}, \\mathbb{{R}})
-
-Skip common mathematical constants (π, e) unless they have special meaning in this paper.
-
-IMPORTANT: Wrap all LaTeX in dollar signs for proper rendering (e.g., $\\alpha_t$, not \\alpha_t)."""
+IMPORTANT: Be selective. Only extract symbols that are mathematically significant to understanding the paper's contributions."""
 
 SYMBOL_USER_PROMPT = """Section: {section_title}
 
 Content:
 {content_text}
-
+w
 Extract all mathematical symbols and key notation from this section."""
 
 
 DEFINITION_SYSTEM_PROMPT = """You are a definition extractor for academic papers.
-Identify both formal and informal definitions.
+Extract ONLY substantive definitions that introduce new concepts, terms, or mathematical objects with clear explanatory content.
 
-A definition includes:
-- The term being defined
-- The definition text (what it means, use $...$ for any math notation)
-- Whether it's formal (numbered, e.g., "Definition 3.2") or informal
+EXTRACT:
+- Formal definitions: "Definition 3.2: A diffusion process is a stochastic process..."
+- Conceptual definitions: "We define the attention mechanism as a function that maps queries to outputs..."
+- Mathematical object definitions: "Let $f: \\mathbb{{R}}^n \\to \\mathbb{{R}}$ be a smooth function..."
+- Term introductions with explanation: "Self-attention, which allows each position to attend to all positions..."
 
-Look for patterns like:
-- "We define X as..."
-- "Let X be..."
-- "X is defined as..."
-- "Definition N.M: ..."
-- Bold/italic terms followed by descriptions
-- "X denotes..."
+DO NOT EXTRACT:
+- Pure equations without explanation: "$L_\\text{{dist}}(\\theta)=\\lambda_d\\mathbb{{E}}[l_\\text{{hard}}\\cdot l_\\text{{soft}}]$"
+- Variable assignments: "Let $n = 100$" or "Set $\\epsilon = 0.01$"
+- Citations or references: "As defined in [Smith et al., 2020]..."
+- Abbreviated notation: "We write $x$ for $x_1, x_2, ..., x_n$"
+- Implementation details: "We use batch size 32"
 
-Be precise: only extract statements that actually define a concept, not just mentions.
+EXAMPLES:
 
-IMPORTANT: Wrap all LaTeX/math notation in dollar signs for proper rendering (e.g., $\\alpha$, $x \\in \\mathbb{{R}}$)."""
+Good extraction:
+Term: Attention mechanism
+Definition: A function that maps a query and a set of key-value pairs to an output, computed as a weighted sum of values where weights are determined by compatibility between query and keys.
+Summary: Weighted combination of values based on query-key similarity.
+Is formal: false
+
+Good extraction:
+Term: KL divergence
+Definition: For probability distributions $P$ and $Q$, the KL divergence $D_{{KL}}(P||Q) = \\mathbb{{E}}_P[\\log P - \\log Q]$ measures how much $P$ differs from $Q$.
+Summary: Measures the difference between two probability distributions.
+Is formal: false
+
+Bad extraction (no explanation):
+Term: $L_\\text{{dist}}(\\theta)$
+Definition: $L_\\text{{dist}}(\\theta)=\\lambda_d\\mathbb{{E}}[l_\\text{{hard}}\\cdot l_\\text{{soft}}]$
+(This is just a formula with no conceptual explanation)
+
+Bad extraction (too trivial):
+Term: $n$
+Definition: The number of samples.
+(Too generic, not a substantive concept)
+
+For each definition, provide:
+1. The term being defined (use LaTeX with $...$ if needed)
+2. The definition text - must include conceptual explanation, not just a formula
+3. A 1-2 sentence summary for quick understanding
+4. Whether it's a formal numbered definition
+
+IMPORTANT: Only extract definitions that provide substantive conceptual or mathematical content. Skip trivial variable assignments and pure equations."""
 
 DEFINITION_USER_PROMPT = """Section: {section_title}
 
@@ -188,6 +357,7 @@ For each, extract:
 - Number (e.g., "3.2")
 - Name (if given, e.g., "Convergence Theorem")
 - Statement (the actual claim being made, use $...$ for any math notation)
+- A 1-2 sentence summary of what the theorem establishes
 
 Look for patterns like:
 - "Theorem N.M: ..."
@@ -232,10 +402,15 @@ DEPENDENCY_USER_PROMPT = """Section: {section_title}
 Content:
 {content_text}
 
-Known entities in this paper:
-- Symbols: {symbol_list}
-- Definitions: {definition_list}
-- Theorems: {theorem_list}
+Known entities in this paper (with brief descriptions):
+Symbols:
+{symbol_list}
+
+Definitions:
+{definition_list}
+
+Theorems:
+{theorem_list}
 
 Extract all dependency relationships visible in this section."""
 
@@ -311,7 +486,7 @@ def extract_symbols(state: GraphState) -> GraphState:
     """Extract mathematical symbols using LLM."""
     print(f"\n[1/4] Extracting symbols from {len(state['sections'])} sections...")
 
-    llm = ChatAnthropic(model="claude-sonnet-4-20250514")
+    llm = ChatAnthropic(model="claude-sonnet-4.5-20250129")
     structured_llm = llm.with_structured_output(SymbolExtractionOutput)
 
     prompt = ChatPromptTemplate.from_messages([
@@ -330,19 +505,43 @@ def extract_symbols(state: GraphState) -> GraphState:
         try:
             content_text = _strip_html_tags(section.get("content_html", ""))
             section_title = section.get("title", "Untitled")
+            section_id = section.get("id", "unknown")
 
             print(f"  [{idx}/{len(sections_to_process)}] {section_title[:50]}...", end=" ", flush=True)
             if os.getenv("KG_DEBUG"):
                 print()
-                print(f"      Section ID: {section.get('id')}")
+                print(f"      Section ID: {section_id}")
                 print(f"      Content length: {len(content_text)} chars")
                 print(f"      Content preview: {content_text[:200].strip()}...")
                 print(f"      Processing...", end=" ", flush=True)
 
-            response = chain.invoke({
-                "section_title": section_title,
-                "content_text": content_text[:8000]  # Limit context size
-            })
+            # Use retry with timeout to handle rate limits and transient errors
+            try:
+                response = run_with_retry(
+                    chain.invoke,
+                    max_retries=3,
+                    base_delay=2.0,
+                    timeout_seconds=120,
+                    {
+                        "section_title": section_title,
+                        "content_text": content_text[:8000]  # Limit context size
+                    }
+                )
+            except TimeoutException as te:
+                print(f"⏱ Timeout after all retries!")
+                state["errors"].append(f"Symbol extraction timed out for section {section_id} ({section_title})")
+                _report_progress(state, "symbols", idx, len(sections_to_process))
+                continue
+            except Exception as e:
+                # This catches non-retryable errors or exhausted retries
+                print(f"✗ Failed after retries!")
+                error_details = f"Symbol extraction failed for section {section_id} ({section_title}): {type(e).__name__}: {str(e)}"
+                state["errors"].append(error_details)
+                if os.getenv("KG_DEBUG"):
+                    import traceback
+                    print(f"\n      Full traceback:\n{traceback.format_exc()}")
+                _report_progress(state, "symbols", idx, len(sections_to_process))
+                continue
 
             count = len(response.symbols)
             print(f"✓ ({count} symbols)")
@@ -353,15 +552,19 @@ def extract_symbols(state: GraphState) -> GraphState:
                     "latex": symbol.latex,
                     "context": symbol.context,
                     "is_definition": symbol.is_definition,
-                    "section_id": section.get("id"),
-                    "dom_node_id": section.get("id"),
+                    "section_id": section_id,
+                    "dom_node_id": section_id,
                 })
 
             _report_progress(state, "symbols", idx, len(sections_to_process))
 
         except Exception as e:
             print(f"✗ Error: {str(e)}")
-            state["errors"].append(f"Symbol extraction failed for section {section.get('id')}: {str(e)}")
+            error_details = f"Symbol extraction failed for section {section_id} ({section_title}): {type(e).__name__}: {str(e)}"
+            state["errors"].append(error_details)
+            if os.getenv("KG_DEBUG"):
+                import traceback
+                print(f"\n      Full traceback:\n{traceback.format_exc()}")
             _report_progress(state, "symbols", idx, len(sections_to_process))
 
     print(f"  → Total: {len(symbols)} symbols extracted")
@@ -373,7 +576,7 @@ def extract_definitions(state: GraphState) -> GraphState:
     """Extract definitions using LLM."""
     print(f"\n[2/4] Extracting definitions from {len(state['sections'])} sections...")
 
-    llm = ChatAnthropic(model="claude-sonnet-4-20250514")
+    llm = ChatAnthropic(model="claude-sonnet-4.5-20250129")
     structured_llm = llm.with_structured_output(DefinitionExtractionOutput)
 
     prompt = ChatPromptTemplate.from_messages([
@@ -392,19 +595,43 @@ def extract_definitions(state: GraphState) -> GraphState:
         try:
             content_text = _strip_html_tags(section.get("content_html", ""))
             section_title = section.get("title", "Untitled")
+            section_id = section.get("id", "unknown")
 
             print(f"  [{idx}/{len(sections_to_process)}] {section_title[:50]}...", end=" ", flush=True)
             if os.getenv("KG_DEBUG"):
                 print()
-                print(f"      Section ID: {section.get('id')}")
+                print(f"      Section ID: {section_id}")
                 print(f"      Content length: {len(content_text)} chars")
                 print(f"      Content preview: {content_text[:200].strip()}...")
                 print(f"      Processing...", end=" ", flush=True)
 
-            response = chain.invoke({
-                "section_title": section_title,
-                "content_text": content_text[:8000]
-            })
+            # Use retry with timeout to handle rate limits and transient errors
+            try:
+                response = run_with_retry(
+                    chain.invoke,
+                    max_retries=3,
+                    base_delay=2.0,
+                    timeout_seconds=120,
+                    {
+                        "section_title": section_title,
+                        "content_text": content_text[:8000]
+                    }
+                )
+            except TimeoutException as te:
+                print(f"⏱ Timeout after all retries!")
+                state["errors"].append(f"Definition extraction timed out for section {section_id} ({section_title})")
+                _report_progress(state, "definitions", idx, len(sections_to_process))
+                continue
+            except Exception as e:
+                # This catches non-retryable errors or exhausted retries
+                print(f"✗ Failed after retries!")
+                error_details = f"Definition extraction failed for section {section_id} ({section_title}): {type(e).__name__}: {str(e)}"
+                state["errors"].append(error_details)
+                if os.getenv("KG_DEBUG"):
+                    import traceback
+                    print(f"\n      Full traceback:\n{traceback.format_exc()}")
+                _report_progress(state, "definitions", idx, len(sections_to_process))
+                continue
 
             count = len(response.definitions)
             print(f"✓ ({count} definitions)")
@@ -413,17 +640,22 @@ def extract_definitions(state: GraphState) -> GraphState:
                 definitions.append({
                     "term": defn.term,
                     "definition_text": defn.definition_text,
+                    "summary": defn.summary,
                     "is_formal": defn.is_formal,
                     "definition_number": defn.definition_number,
-                    "section_id": section.get("id"),
-                    "dom_node_id": section.get("id"),
+                    "section_id": section_id,
+                    "dom_node_id": section_id,
                 })
 
             _report_progress(state, "definitions", idx, len(sections_to_process))
 
         except Exception as e:
             print(f"✗ Error: {str(e)}")
-            state["errors"].append(f"Definition extraction failed for section {section.get('id')}: {str(e)}")
+            error_details = f"Definition extraction failed for section {section_id} ({section_title}): {type(e).__name__}: {str(e)}"
+            state["errors"].append(error_details)
+            if os.getenv("KG_DEBUG"):
+                import traceback
+                print(f"\n      Full traceback:\n{traceback.format_exc()}")
             _report_progress(state, "definitions", idx, len(sections_to_process))
 
     print(f"  → Total: {len(definitions)} definitions extracted")
@@ -435,7 +667,7 @@ def extract_theorems(state: GraphState) -> GraphState:
     """Extract theorems, lemmas, corollaries using LLM."""
     print(f"\n[3/4] Extracting theorems from {len(state['sections'])} sections...")
 
-    llm = ChatAnthropic(model="claude-sonnet-4-20250514")
+    llm = ChatAnthropic(model="claude-sonnet-4.5-20250129")
     structured_llm = llm.with_structured_output(TheoremExtractionOutput)
 
     prompt = ChatPromptTemplate.from_messages([
@@ -454,19 +686,43 @@ def extract_theorems(state: GraphState) -> GraphState:
         try:
             content_text = _strip_html_tags(section.get("content_html", ""))
             section_title = section.get("title", "Untitled")
+            section_id = section.get("id", "unknown")
 
             print(f"  [{idx}/{len(sections_to_process)}] {section_title[:50]}...", end=" ", flush=True)
             if os.getenv("KG_DEBUG"):
                 print()
-                print(f"      Section ID: {section.get('id')}")
+                print(f"      Section ID: {section_id}")
                 print(f"      Content length: {len(content_text)} chars")
                 print(f"      Content preview: {content_text[:200].strip()}...")
                 print(f"      Processing...", end=" ", flush=True)
 
-            response = chain.invoke({
-                "section_title": section_title,
-                "content_text": content_text[:8000]
-            })
+            # Use retry with timeout to handle rate limits and transient errors
+            try:
+                response = run_with_retry(
+                    chain.invoke,
+                    max_retries=3,
+                    base_delay=2.0,
+                    timeout_seconds=120,
+                    {
+                        "section_title": section_title,
+                        "content_text": content_text[:8000]
+                    }
+                )
+            except TimeoutException as te:
+                print(f"⏱ Timeout after all retries!")
+                state["errors"].append(f"Theorem extraction timed out for section {section_id} ({section_title})")
+                _report_progress(state, "theorems", idx, len(sections_to_process))
+                continue
+            except Exception as e:
+                # This catches non-retryable errors or exhausted retries
+                print(f"✗ Failed after retries!")
+                error_details = f"Theorem extraction failed for section {section_id} ({section_title}): {type(e).__name__}: {str(e)}"
+                state["errors"].append(error_details)
+                if os.getenv("KG_DEBUG"):
+                    import traceback
+                    print(f"\n      Full traceback:\n{traceback.format_exc()}")
+                _report_progress(state, "theorems", idx, len(sections_to_process))
+                continue
 
             count = len(response.theorems)
             print(f"✓ ({count} theorems)")
@@ -477,15 +733,20 @@ def extract_theorems(state: GraphState) -> GraphState:
                     "number": thm.number,
                     "name": thm.name,
                     "statement": thm.statement,
-                    "section_id": section.get("id"),
-                    "dom_node_id": section.get("id"),
+                    "summary": thm.summary,
+                    "section_id": section_id,
+                    "dom_node_id": section_id,
                 })
 
             _report_progress(state, "theorems", idx, len(sections_to_process))
 
         except Exception as e:
             print(f"✗ Error: {str(e)}")
-            state["errors"].append(f"Theorem extraction failed for section {section.get('id')}: {str(e)}")
+            error_details = f"Theorem extraction failed for section {section_id} ({section_title}): {type(e).__name__}: {str(e)}"
+            state["errors"].append(error_details)
+            if os.getenv("KG_DEBUG"):
+                import traceback
+                print(f"\n      Full traceback:\n{traceback.format_exc()}")
             _report_progress(state, "theorems", idx, len(sections_to_process))
 
     print(f"  → Total: {len(theorems)} theorems extracted")
@@ -497,7 +758,7 @@ def extract_dependencies(state: GraphState) -> GraphState:
     """Extract relationships between entities."""
     print(f"\n[4/4] Extracting relationships from {len(state['sections'])} sections...")
 
-    llm = ChatAnthropic(model="claude-sonnet-4-20250514")
+    llm = ChatAnthropic(model="claude-sonnet-4.5-20250129")
     structured_llm = llm.with_structured_output(RelationshipExtractionOutput)
 
     prompt = ChatPromptTemplate.from_messages([
@@ -507,10 +768,15 @@ def extract_dependencies(state: GraphState) -> GraphState:
 
     chain = prompt | structured_llm
 
-    # Prepare entity lists for context
-    symbol_list = [s["symbol"] for s in state["symbols"]]
-    definition_list = [d["term"] for d in state["definitions"]]
-    theorem_list = [f"{t['type'].capitalize()} {t['number']}" for t in state["theorems"]]
+    # Prepare entity lists for context with summaries
+    symbol_list = [f"{s['symbol']}: {s['context']}" for s in state["symbols"]]
+    definition_list = [f"{d['term']}: {d['summary']}" for d in state["definitions"]]
+    theorem_list = [
+        f"{t['type'].capitalize()} {t['number']}" +
+        (f" ({t['name']})" if t.get('name') else "") +
+        f": {t['summary']}"
+        for t in state["theorems"]
+    ]
 
     print(f"  Context: {len(symbol_list)} symbols, {len(definition_list)} definitions, {len(theorem_list)} theorems")
 
@@ -523,22 +789,46 @@ def extract_dependencies(state: GraphState) -> GraphState:
         try:
             content_text = _strip_html_tags(section.get("content_html", ""))
             section_title = section.get("title", "Untitled")
+            section_id = section.get("id", "unknown")
 
             print(f"  [{idx}/{len(sections_to_process)}] {section_title[:50]}...", end=" ", flush=True)
             if os.getenv("KG_DEBUG"):
                 print()
-                print(f"      Section ID: {section.get('id')}")
+                print(f"      Section ID: {section_id}")
                 print(f"      Content length: {len(content_text)} chars")
                 print(f"      Content preview: {content_text[:200].strip()}...")
                 print(f"      Processing...", end=" ", flush=True)
 
-            response = chain.invoke({
-                "section_title": section_title,
-                "content_text": content_text[:8000],
-                "symbol_list": ", ".join(symbol_list[:50]) if symbol_list else "None found",
-                "definition_list": ", ".join(definition_list[:30]) if definition_list else "None found",
-                "theorem_list": ", ".join(theorem_list[:20]) if theorem_list else "None found",
-            })
+            # Use retry with timeout to handle rate limits and transient errors
+            try:
+                response = run_with_retry(
+                    chain.invoke,
+                    max_retries=3,
+                    base_delay=2.0,
+                    timeout_seconds=120,
+                    {
+                        "section_title": section_title,
+                        "content_text": content_text[:8000],
+                        "symbol_list": "\n".join(f"- {s}" for s in symbol_list[:50]) if symbol_list else "None found",
+                        "definition_list": "\n".join(f"- {d}" for d in definition_list[:30]) if definition_list else "None found",
+                        "theorem_list": "\n".join(f"- {t}" for t in theorem_list[:20]) if theorem_list else "None found",
+                    }
+                )
+            except TimeoutException as te:
+                print(f"⏱ Timeout after all retries!")
+                state["errors"].append(f"Dependency extraction timed out for section {section_id} ({section_title})")
+                _report_progress(state, "dependencies", idx, len(sections_to_process))
+                continue
+            except Exception as e:
+                # This catches non-retryable errors or exhausted retries
+                print(f"✗ Failed after retries!")
+                error_details = f"Dependency extraction failed for section {section_id} ({section_title}): {type(e).__name__}: {str(e)}"
+                state["errors"].append(error_details)
+                if os.getenv("KG_DEBUG"):
+                    import traceback
+                    print(f"\n      Full traceback:\n{traceback.format_exc()}")
+                _report_progress(state, "dependencies", idx, len(sections_to_process))
+                continue
 
             count = len(response.relationships)
             print(f"✓ ({count} relationships)")
@@ -549,14 +839,18 @@ def extract_dependencies(state: GraphState) -> GraphState:
                     "to_entity": rel.to_entity,
                     "type": rel.relationship_type,
                     "evidence": rel.evidence_text,
-                    "section_id": section.get("id"),
+                    "section_id": section_id,
                 })
 
             _report_progress(state, "dependencies", idx, len(sections_to_process))
 
         except Exception as e:
             print(f"✗ Error: {str(e)}")
-            state["errors"].append(f"Dependency extraction failed for section {section.get('id')}: {str(e)}")
+            error_details = f"Dependency extraction failed for section {section_id} ({section_title}): {type(e).__name__}: {str(e)}"
+            state["errors"].append(error_details)
+            if os.getenv("KG_DEBUG"):
+                import traceback
+                print(f"\n      Full traceback:\n{traceback.format_exc()}")
             _report_progress(state, "dependencies", idx, len(sections_to_process))
 
     print(f"  → Total: {len(relationships)} relationships extracted")
@@ -635,17 +929,18 @@ def build_graph(state: GraphState) -> GraphState:
         if term_key in seen_definitions:
             continue
         seen_definitions.add(term_key)
-        
+
         node_id = f"def_{_sanitize_id(defn['term'])}"
         if node_id in seen_node_ids:
             continue
         seen_node_ids.add(node_id)
-        
+
         nodes.append({
             "id": node_id,
             "type": "definition",
             "label": defn["term"],
             "definition": defn["definition_text"],
+            "summary": defn["summary"],
             "is_formal": defn["is_formal"],
             "definition_number": defn.get("definition_number"),
             "dom_node_id": defn["dom_node_id"],
@@ -658,7 +953,7 @@ def build_graph(state: GraphState) -> GraphState:
         if node_id in seen_node_ids:
             continue
         seen_node_ids.add(node_id)
-        
+
         nodes.append({
             "id": node_id,
             "type": "theorem",
@@ -666,6 +961,7 @@ def build_graph(state: GraphState) -> GraphState:
             "label": f"{thm['type'].capitalize()} {thm['number']}",
             "name": thm.get("name"),
             "statement": thm["statement"],
+            "summary": thm["summary"],
             "dom_node_id": thm["dom_node_id"],
             "section_id": thm["section_id"],
         })
