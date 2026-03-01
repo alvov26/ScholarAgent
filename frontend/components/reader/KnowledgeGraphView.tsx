@@ -22,7 +22,7 @@ import { GraphNode } from './GraphNode';
 import { KnowledgeGraphProgress } from './KnowledgeGraphProgress';
 import { EdgeInfoPanel } from './EdgeInfoPanel';
 import { NodeInfoPanel } from './NodeInfoPanel';
-import { Loader2, AlertCircle, Network, Search, X, Focus, Maximize2 } from 'lucide-react';
+import { Loader2, AlertCircle, Network, Search, X, Focus, Maximize2, Filter, ChevronDown } from 'lucide-react';
 
 // Custom node types
 const nodeTypes = {
@@ -193,6 +193,12 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
   const [allNodes, setAllNodes] = useState<Node[]>([]);
   const [allEdges, setAllEdges] = useState<Edge[]>([]);
 
+  // Filter state
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [visibleNodeTypes, setVisibleNodeTypes] = useState<Set<string>>(new Set(['symbol', 'definition', 'theorem']));
+  const [visibleEdgeTypes, setVisibleEdgeTypes] = useState<Set<string>>(new Set(['uses', 'depends_on', 'defines', 'extends', 'mentions']));
+  const filterMenuRef = useRef<HTMLDivElement>(null);
+
   // React Flow instance for programmatic control
   const reactFlowInstance = useReactFlow();
 
@@ -346,41 +352,50 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
     return { nodes: filteredNodes, edges: filteredEdges };
   }, []);
 
-  // Update displayed graph when focus mode or focused node changes
+  // Update displayed graph when focus mode, focused node, or filters change
   useEffect(() => {
-    if (!focusMode || !focusedNodeId) {
-      // Show full graph, clear any focus highlighting
-      if (allNodes.length > 0) {
-        const nodesWithoutFocus = allNodes.map(n => ({
-          ...n,
-          data: { ...n.data, isFocused: false }
-        }));
-        setNodes(nodesWithoutFocus);
-        setEdges(allEdges);
-      }
-      return;
+    if (allNodes.length === 0) return;
+
+    let workingNodes = allNodes;
+    let workingEdges = allEdges;
+
+    // Apply focus mode first (if active)
+    if (focusMode && focusedNodeId) {
+      const subgraph = computeSubgraph(focusedNodeId, allNodes, allEdges);
+      workingNodes = subgraph.nodes;
+      workingEdges = subgraph.edges;
     }
 
-    // Compute and display subgraph
-    const subgraph = computeSubgraph(focusedNodeId, allNodes, allEdges);
+    // Apply node type filters
+    workingNodes = workingNodes.filter(n => visibleNodeTypes.has(n.data.nodeType));
+    const visibleNodeIds = new Set(workingNodes.map(n => n.id));
+
+    // Apply edge type filters and ensure both endpoints are visible
+    workingEdges = workingEdges.filter(e =>
+      visibleEdgeTypes.has(e.label as string) &&
+      visibleNodeIds.has(e.source) &&
+      visibleNodeIds.has(e.target)
+    );
 
     // Mark the focused node
-    const nodesWithFocus = subgraph.nodes.map(n => ({
+    const nodesWithFocus = workingNodes.map(n => ({
       ...n,
-      data: { ...n.data, isFocused: n.id === focusedNodeId }
+      data: { ...n.data, isFocused: focusMode && n.id === focusedNodeId }
     }));
 
-    // Re-layout the subgraph
-    const layouted = hierarchicalLayout([...nodesWithFocus], [...subgraph.edges]);
+    // Re-layout
+    const layouted = hierarchicalLayout([...nodesWithFocus], [...workingEdges]);
 
     setNodes(layouted.nodes);
     setEdges(layouted.edges);
 
-    // Fit view to show the subgraph
-    setTimeout(() => {
-      reactFlowInstance.fitView({ padding: 0.2, duration: 300 });
-    }, 50);
-  }, [focusMode, focusedNodeId, allNodes, allEdges, computeSubgraph, setNodes, setEdges, reactFlowInstance]);
+    // Fit view when focus mode changes
+    if (focusMode && focusedNodeId) {
+      setTimeout(() => {
+        reactFlowInstance.fitView({ padding: 0.2, duration: 300 });
+      }, 50);
+    }
+  }, [focusMode, focusedNodeId, allNodes, allEdges, visibleNodeTypes, visibleEdgeTypes, computeSubgraph, setNodes, setEdges, reactFlowInstance]);
 
   // Handle node click to show full details
   const onNodeClick: NodeMouseHandler = useCallback((event, node) => {
@@ -506,11 +521,14 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
     setShowSearchResults(true);
   }, [searchQuery, allNodes]);
 
-  // Close search results when clicking outside
+  // Close search results and filter menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
         setShowSearchResults(false);
+      }
+      if (filterMenuRef.current && !filterMenuRef.current.contains(event.target as Node)) {
+        setShowFilterMenu(false);
       }
     };
 
@@ -530,6 +548,34 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
     setSelectedEdge(null);
     setSelectedNode(null);
   }, []);
+
+  // Toggle filter helpers
+  const toggleNodeType = (type: string) => {
+    setVisibleNodeTypes(prev => {
+      const next = new Set(prev);
+      if (next.has(type)) {
+        next.delete(type);
+      } else {
+        next.add(type);
+      }
+      return next;
+    });
+  };
+
+  const toggleEdgeType = (type: string) => {
+    setVisibleEdgeTypes(prev => {
+      const next = new Set(prev);
+      if (next.has(type)) {
+        next.delete(type);
+      } else {
+        next.add(type);
+      }
+      return next;
+    });
+  };
+
+  // Check if any filters are active
+  const hasActiveFilters = visibleNodeTypes.size < 3 || visibleEdgeTypes.size < 5;
 
   // Show progress during build
   if (isBuilding) {
@@ -710,6 +756,90 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
             <span className="text-xs text-slate-400 italic">
               Select a node to focus
             </span>
+          )}
+        </div>
+
+        {/* Filter menu */}
+        <div ref={filterMenuRef} className="relative">
+          <button
+            onClick={() => setShowFilterMenu(!showFilterMenu)}
+            className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded border transition-colors ${
+              hasActiveFilters
+                ? 'bg-amber-100 text-amber-700 border-amber-300'
+                : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+            }`}
+            title="Filter visible nodes and relationships"
+          >
+            <Filter size={12} />
+            Filter
+            <ChevronDown size={10} className={`transition-transform ${showFilterMenu ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showFilterMenu && (
+            <div className="absolute top-full right-0 mt-1 w-56 bg-white rounded-md shadow-lg border border-slate-200 z-50 py-2">
+              {/* Node types */}
+              <div className="px-3 py-1">
+                <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Node Types</div>
+                {[
+                  { type: 'symbol', label: 'Symbols', color: 'bg-blue-500' },
+                  { type: 'definition', label: 'Definitions', color: 'bg-emerald-500' },
+                  { type: 'theorem', label: 'Theorems', color: 'bg-violet-500' },
+                ].map(({ type, label, color }) => (
+                  <label key={type} className="flex items-center gap-2 py-1 cursor-pointer hover:bg-slate-50 -mx-3 px-3">
+                    <input
+                      type="checkbox"
+                      checked={visibleNodeTypes.has(type)}
+                      onChange={() => toggleNodeType(type)}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span className={`w-2 h-2 rounded-full ${color}`} />
+                    <span className="text-xs text-slate-700">{label}</span>
+                  </label>
+                ))}
+              </div>
+
+              <div className="border-t border-slate-100 my-1" />
+
+              {/* Edge types */}
+              <div className="px-3 py-1">
+                <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Relationship Types</div>
+                {[
+                  { type: 'uses', label: 'Uses', color: 'bg-indigo-500' },
+                  { type: 'depends_on', label: 'Depends on', color: 'bg-amber-500' },
+                  { type: 'defines', label: 'Defines', color: 'bg-emerald-500' },
+                  { type: 'extends', label: 'Extends', color: 'bg-violet-500' },
+                  { type: 'mentions', label: 'Mentions', color: 'bg-slate-400' },
+                ].map(({ type, label, color }) => (
+                  <label key={type} className="flex items-center gap-2 py-1 cursor-pointer hover:bg-slate-50 -mx-3 px-3">
+                    <input
+                      type="checkbox"
+                      checked={visibleEdgeTypes.has(type)}
+                      onChange={() => toggleEdgeType(type)}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span className={`w-2 h-2 rounded-full ${color}`} />
+                    <span className="text-xs text-slate-700">{label}</span>
+                  </label>
+                ))}
+              </div>
+
+              {hasActiveFilters && (
+                <>
+                  <div className="border-t border-slate-100 my-1" />
+                  <div className="px-3 py-1">
+                    <button
+                      onClick={() => {
+                        setVisibleNodeTypes(new Set(['symbol', 'definition', 'theorem']));
+                        setVisibleEdgeTypes(new Set(['uses', 'depends_on', 'defines', 'extends', 'mentions']));
+                      }}
+                      className="text-xs text-indigo-600 hover:text-indigo-800"
+                    >
+                      Reset filters
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           )}
         </div>
 
