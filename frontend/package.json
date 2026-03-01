@@ -23,7 +23,9 @@
   "type": "module",
   "dependencies": {
     "@tailwindcss/typography": "^0.5.19",
+    "@types/dagre": "^0.7.54",
     "clsx": "^2.1.1",
+    "dagre": "^0.8.5",
     "framer-motion": "^12.34.0",
     "html-react-parser": "^5.2.17",
     "lucide-react": "^0.563.0",

@@ -15,6 +15,7 @@ import ReactFlow, {
   NodeMouseHandler,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
+import dagre from 'dagre';
 import { GraphNode } from './GraphNode';
 import { KnowledgeGraphProgress } from './KnowledgeGraphProgress';
 import { EdgeInfoPanel } from './EdgeInfoPanel';
@@ -75,55 +76,46 @@ interface GraphData {
 }
 
 /**
- * Simple grid-based auto-layout for nodes.
- * Groups nodes by type for better visual organization.
+ * Hierarchical layout using dagre.
+ * Arranges nodes based on dependencies (left = no dependencies, right = many dependencies).
  */
-function autoLayout(nodes: Node[], edges: Edge[]): { nodes: Node[]; edges: Edge[] } {
-  // Group nodes by type
-  const symbolNodes = nodes.filter(n => n.data.nodeType === 'symbol');
-  const definitionNodes = nodes.filter(n => n.data.nodeType === 'definition');
-  const theoremNodes = nodes.filter(n => n.data.nodeType === 'theorem');
+function hierarchicalLayout(nodes: Node[], edges: Edge[]): { nodes: Node[]; edges: Edge[] } {
+  const dagreGraph = new dagre.graphlib.Graph();
+  dagreGraph.setDefaultEdgeLabel(() => ({}));
+
+  // Configure layout direction: Left-to-Right for better horizontal spread
+  dagreGraph.setGraph({
+    rankdir: 'LR',   // Left to Right - better for wide graphs
+    nodesep: 100,    // Vertical spacing between nodes (in same rank)
+    ranksep: 200,    // Horizontal spacing between ranks
+    marginx: 50,
+    marginy: 50,
+    ranker: 'network-simplex',  // Better ranking algorithm
+  });
 
   const nodeWidth = 180;
   const nodeHeight = 80;
-  const horizontalGap = 40;
-  const verticalGap = 60;
-  const sectionGap = 100;
 
-  let currentY = 0;
-
-  // Layout definitions at the top (they're usually foundational)
-  const defCols = Math.min(4, Math.max(1, definitionNodes.length));
-  definitionNodes.forEach((node, i) => {
-    node.position = {
-      x: (i % defCols) * (nodeWidth + horizontalGap),
-      y: currentY + Math.floor(i / defCols) * (nodeHeight + verticalGap),
-    };
+  // Add nodes to dagre graph
+  nodes.forEach((node) => {
+    dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
   });
 
-  if (definitionNodes.length > 0) {
-    currentY += Math.ceil(definitionNodes.length / defCols) * (nodeHeight + verticalGap) + sectionGap;
-  }
-
-  // Layout theorems in the middle
-  const thmCols = Math.min(3, Math.max(1, theoremNodes.length));
-  theoremNodes.forEach((node, i) => {
-    node.position = {
-      x: (i % thmCols) * (nodeWidth + horizontalGap),
-      y: currentY + Math.floor(i / thmCols) * (nodeHeight + verticalGap),
-    };
+  // Add edges to dagre graph
+  edges.forEach((edge) => {
+    dagreGraph.setEdge(edge.source, edge.target);
   });
 
-  if (theoremNodes.length > 0) {
-    currentY += Math.ceil(theoremNodes.length / thmCols) * (nodeHeight + verticalGap) + sectionGap;
-  }
+  // Calculate layout
+  dagre.layout(dagreGraph);
 
-  // Layout symbols at the bottom (there are usually many)
-  const symCols = Math.min(6, Math.max(1, symbolNodes.length));
-  symbolNodes.forEach((node, i) => {
+  // Apply calculated positions to nodes
+  nodes.forEach((node) => {
+    const nodeWithPosition = dagreGraph.node(node.id);
     node.position = {
-      x: (i % symCols) * (nodeWidth + horizontalGap),
-      y: currentY + Math.floor(i / symCols) * (nodeHeight + verticalGap),
+      // Dagre returns center coordinates, we need top-left
+      x: nodeWithPosition.x - nodeWidth / 2,
+      y: nodeWithPosition.y - nodeHeight / 2,
     };
   });
 
@@ -206,8 +198,8 @@ export function KnowledgeGraphView({ paperId, onNavigate }: KnowledgeGraphViewPr
           data: { evidence: e.evidence },
         }));
 
-        // Apply layout
-        const layouted = autoLayout(flowNodes, flowEdges);
+        // Apply hierarchical layout
+        const layouted = hierarchicalLayout(flowNodes, flowEdges);
 
         setNodes(layouted.nodes);
         setEdges(layouted.edges);
