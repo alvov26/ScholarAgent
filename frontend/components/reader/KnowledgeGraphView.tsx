@@ -718,58 +718,42 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
           )}
         </div>
 
-        {/* Focus mode toggle */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              if (focusMode) {
-                // Turning off focus mode
+        {/* Focus mode indicator */}
+        {focusMode && focusedNodeId ? (
+          <div className="flex items-center gap-1.5 px-2 py-1 text-xs bg-indigo-50 rounded border border-indigo-200">
+            <span className="text-slate-600">Focusing on:</span>
+            <button
+              onClick={() => {
+                showNodeById(focusedNodeId, true);
+              }}
+              className="font-medium text-indigo-700 hover:text-indigo-900 hover:underline max-w-[200px] truncate"
+              title={allNodes.find(n => n.id === focusedNodeId)?.data.label}
+            >
+              {allNodes.find(n => n.id === focusedNodeId)?.data.label}
+            </button>
+            <button
+              onClick={() => {
                 setFocusMode(false);
                 setFocusedNodeId(null);
-              } else {
-                // Turning on focus mode - use currently selected node if any
-                setFocusMode(true);
-                if (selectedNode) {
-                  setFocusedNodeId(selectedNode.id);
-                }
-              }
-            }}
-            className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded border transition-colors ${
-              focusMode
-                ? 'bg-indigo-100 text-indigo-700 border-indigo-300'
-                : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
-            }`}
-            title={focusMode ? 'Show full graph' : 'Focus on selected node (show only ancestors & descendants)'}
-          >
-            {focusMode ? <Maximize2 size={12} /> : <Focus size={12} />}
-            {focusMode ? 'Show all' : 'Focus mode'}
-          </button>
-          {focusMode && focusedNodeId && (
-            <span className="text-xs text-slate-500">
-              Focusing on:{' '}
-              <button
-                onClick={() => {
-                  const node = nodes.find(n => n.id === focusedNodeId);
-                  if (node) {
-                    reactFlowInstance.setCenter(
-                      node.position.x + 90,
-                      node.position.y + 40,
-                      { zoom: 1, duration: 500 }
-                    );
-                  }
-                }}
-                className="font-medium text-indigo-600 hover:text-indigo-800 hover:underline"
-              >
-                {allNodes.find(n => n.id === focusedNodeId)?.data.label}
-              </button>
-            </span>
-          )}
-          {focusMode && !focusedNodeId && (
-            <span className="text-xs text-slate-400 italic">
-              Select a node to focus
-            </span>
-          )}
-        </div>
+              }}
+              className="text-slate-400 hover:text-slate-600 ml-1"
+              title="Exit focus mode"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        ) : focusMode && !focusedNodeId ? (
+          <div className="flex items-center gap-1.5 px-2 py-1 text-xs bg-amber-50 rounded border border-amber-200">
+            <span className="text-amber-700 italic">Select a node to focus</span>
+            <button
+              onClick={() => setFocusMode(false)}
+              className="text-amber-400 hover:text-amber-600"
+              title="Exit focus mode"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        ) : null}
 
         {/* Filter menu */}
         <div ref={filterMenuRef} className="relative">
