@@ -78,7 +78,7 @@ def is_retryable_error(exception: Exception) -> bool:
     return any(pattern in error_str.lower() for pattern in retryable_patterns)
 
 
-def run_with_retry(func: Callable, max_retries: int = 3, base_delay: float = 2.0, timeout_seconds: int = 120, *args, **kwargs):
+def run_with_retry(func: Callable, max_retries: int = 3, base_delay: float = 2.0, timeout_seconds: int = 120, func_args: tuple = (), func_kwargs: dict = None):
     """
     Run a function with exponential backoff retry logic.
 
@@ -87,7 +87,8 @@ def run_with_retry(func: Callable, max_retries: int = 3, base_delay: float = 2.0
         max_retries: Maximum number of retry attempts (default: 3)
         base_delay: Base delay in seconds for exponential backoff (default: 2.0)
         timeout_seconds: Timeout for each individual attempt (default: 120)
-        *args, **kwargs: Arguments to pass to func
+        func_args: Positional arguments to pass to func (as a tuple)
+        func_kwargs: Keyword arguments to pass to func (as a dict)
 
     Returns:
         Result from func
@@ -95,12 +96,14 @@ def run_with_retry(func: Callable, max_retries: int = 3, base_delay: float = 2.0
     Raises:
         The last exception if all retries fail
     """
+    if func_kwargs is None:
+        func_kwargs = {}
     last_exception = None
 
     for attempt in range(max_retries + 1):  # +1 because first call is attempt 0
         try:
             # Run with timeout
-            return run_with_timeout(func, timeout_seconds, *args, **kwargs)
+            return run_with_timeout(func, timeout_seconds, *func_args, **func_kwargs)
 
         except TimeoutException as e:
             last_exception = e
@@ -486,7 +489,7 @@ def extract_symbols(state: GraphState) -> GraphState:
     """Extract mathematical symbols using LLM."""
     print(f"\n[1/4] Extracting symbols from {len(state['sections'])} sections...")
 
-    llm = ChatAnthropic(model="claude-sonnet-4.5-20250129")
+    llm = ChatAnthropic(model="claude-sonnet-4-5-20250929")
     structured_llm = llm.with_structured_output(SymbolExtractionOutput)
 
     prompt = ChatPromptTemplate.from_messages([
@@ -517,15 +520,16 @@ def extract_symbols(state: GraphState) -> GraphState:
 
             # Use retry with timeout to handle rate limits and transient errors
             try:
+                invoke_args = {
+                    "section_title": section_title,
+                    "content_text": content_text[:8000]  # Limit context size
+                }
                 response = run_with_retry(
-                    chain.invoke,
+                    func=chain.invoke,
                     max_retries=3,
                     base_delay=2.0,
                     timeout_seconds=120,
-                    {
-                        "section_title": section_title,
-                        "content_text": content_text[:8000]  # Limit context size
-                    }
+                    func_args=(invoke_args,)
                 )
             except TimeoutException as te:
                 print(f"⏱ Timeout after all retries!")
@@ -576,7 +580,7 @@ def extract_definitions(state: GraphState) -> GraphState:
     """Extract definitions using LLM."""
     print(f"\n[2/4] Extracting definitions from {len(state['sections'])} sections...")
 
-    llm = ChatAnthropic(model="claude-sonnet-4.5-20250129")
+    llm = ChatAnthropic(model="claude-sonnet-4-5-20250929")
     structured_llm = llm.with_structured_output(DefinitionExtractionOutput)
 
     prompt = ChatPromptTemplate.from_messages([
@@ -607,15 +611,16 @@ def extract_definitions(state: GraphState) -> GraphState:
 
             # Use retry with timeout to handle rate limits and transient errors
             try:
+                invoke_args = {
+                    "section_title": section_title,
+                    "content_text": content_text[:8000]
+                }
                 response = run_with_retry(
-                    chain.invoke,
+                    func=chain.invoke,
                     max_retries=3,
                     base_delay=2.0,
                     timeout_seconds=120,
-                    {
-                        "section_title": section_title,
-                        "content_text": content_text[:8000]
-                    }
+                    func_args=(invoke_args,)
                 )
             except TimeoutException as te:
                 print(f"⏱ Timeout after all retries!")
@@ -667,7 +672,7 @@ def extract_theorems(state: GraphState) -> GraphState:
     """Extract theorems, lemmas, corollaries using LLM."""
     print(f"\n[3/4] Extracting theorems from {len(state['sections'])} sections...")
 
-    llm = ChatAnthropic(model="claude-sonnet-4.5-20250129")
+    llm = ChatAnthropic(model="claude-sonnet-4-5-20250929")
     structured_llm = llm.with_structured_output(TheoremExtractionOutput)
 
     prompt = ChatPromptTemplate.from_messages([
@@ -698,15 +703,16 @@ def extract_theorems(state: GraphState) -> GraphState:
 
             # Use retry with timeout to handle rate limits and transient errors
             try:
+                invoke_args = {
+                    "section_title": section_title,
+                    "content_text": content_text[:8000]
+                }
                 response = run_with_retry(
-                    chain.invoke,
+                    func=chain.invoke,
                     max_retries=3,
                     base_delay=2.0,
                     timeout_seconds=120,
-                    {
-                        "section_title": section_title,
-                        "content_text": content_text[:8000]
-                    }
+                    func_args=(invoke_args,)
                 )
             except TimeoutException as te:
                 print(f"⏱ Timeout after all retries!")
@@ -758,7 +764,7 @@ def extract_dependencies(state: GraphState) -> GraphState:
     """Extract relationships between entities."""
     print(f"\n[4/4] Extracting relationships from {len(state['sections'])} sections...")
 
-    llm = ChatAnthropic(model="claude-sonnet-4.5-20250129")
+    llm = ChatAnthropic(model="claude-sonnet-4-5-20250929")
     structured_llm = llm.with_structured_output(RelationshipExtractionOutput)
 
     prompt = ChatPromptTemplate.from_messages([
@@ -801,18 +807,19 @@ def extract_dependencies(state: GraphState) -> GraphState:
 
             # Use retry with timeout to handle rate limits and transient errors
             try:
+                invoke_args = {
+                    "section_title": section_title,
+                    "content_text": content_text[:8000],
+                    "symbol_list": "\n".join(f"- {s}" for s in symbol_list[:50]) if symbol_list else "None found",
+                    "definition_list": "\n".join(f"- {d}" for d in definition_list[:30]) if definition_list else "None found",
+                    "theorem_list": "\n".join(f"- {t}" for t in theorem_list[:20]) if theorem_list else "None found",
+                }
                 response = run_with_retry(
-                    chain.invoke,
+                    func=chain.invoke,
                     max_retries=3,
                     base_delay=2.0,
                     timeout_seconds=120,
-                    {
-                        "section_title": section_title,
-                        "content_text": content_text[:8000],
-                        "symbol_list": "\n".join(f"- {s}" for s in symbol_list[:50]) if symbol_list else "None found",
-                        "definition_list": "\n".join(f"- {d}" for d in definition_list[:30]) if definition_list else "None found",
-                        "theorem_list": "\n".join(f"- {t}" for t in theorem_list[:20]) if theorem_list else "None found",
-                    }
+                    func_args=(invoke_args,)
                 )
             except TimeoutException as te:
                 print(f"⏱ Timeout after all retries!")
