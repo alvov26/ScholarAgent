@@ -35,6 +35,10 @@ export function LatexText({ text, className = '' }: LatexTextProps) {
     const typeset = async () => {
       if (typeof window !== 'undefined' && window.MathJax?.typesetPromise && containerRef.current) {
         try {
+          // Skip if element is not visible (e.g., hidden by parent)
+          if (!containerRef.current.offsetParent) {
+            return;
+          }
           // Wait for MathJax startup if needed
           if (window.MathJax.startup?.promise) {
             await window.MathJax.startup.promise;

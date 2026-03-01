@@ -260,13 +260,9 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
         setAllNodes(layouted.nodes);
         setAllEdges(layouted.edges);
 
-        setNodes(layouted.nodes);
-        setEdges(layouted.edges);
+        // Note: Don't set nodes/edges directly here - let the effect handle it
+        // to preserve focus mode and filters
         setLoading(false);
-
-        // Reset focus mode when loading new data
-        setFocusMode(false);
-        setFocusedNodeId(null);
       })
       .catch(err => {
         setError(err.message);
@@ -292,6 +288,11 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
 
   const handleBuildComplete = useCallback(() => {
     setIsBuilding(false);
+    // Reset focus and filters when rebuilding graph
+    setFocusMode(false);
+    setFocusedNodeId(null);
+    setVisibleNodeTypes(new Set(['symbol', 'definition', 'theorem']));
+    setVisibleEdgeTypes(new Set(['uses', 'depends_on', 'defines', 'extends', 'mentions']));
     fetchGraphData();
   }, [fetchGraphData]);
 

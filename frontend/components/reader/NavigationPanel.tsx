@@ -55,22 +55,21 @@ export default function NavigationPanel({
         </button>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-hidden">
-        {mode === 'toc' ? (
-          <div className="h-full overflow-y-auto p-3">
-            <TableOfContents
-              nodes={toc}
-              onNavigate={onNavigate}
-              currentSectionId={currentSectionId}
-            />
-          </div>
-        ) : (
+      {/* Content - both components stay mounted to preserve state */}
+      <div className="flex-1 overflow-hidden relative">
+        <div className={`h-full overflow-y-auto p-3 ${mode === 'toc' ? '' : 'hidden'}`}>
+          <TableOfContents
+            nodes={toc}
+            onNavigate={onNavigate}
+            currentSectionId={currentSectionId}
+          />
+        </div>
+        <div className={`h-full ${mode === 'graph' ? '' : 'hidden'}`}>
           <KnowledgeGraphView
             paperId={paperId}
             onNavigate={(domNodeId) => onNavigate?.(domNodeId)}
           />
-        )}
+        </div>
       </div>
     </div>
   );
