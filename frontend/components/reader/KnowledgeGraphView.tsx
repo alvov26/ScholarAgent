@@ -413,8 +413,10 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
       onNavigate: node.data.onNavigate,
     });
 
-    // Close edge panel if open
+    // Close edge panel and menus if open
     setSelectedEdge(null);
+    setShowFilterMenu(false);
+    setShowSearchResults(false);
   }, []);
 
   // Handle edge click to show evidence
@@ -435,8 +437,10 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
         evidence: edge.data?.evidence,
       });
 
-      // Close node panel if open
+      // Close node panel and menus if open
       setSelectedNode(null);
+      setShowFilterMenu(false);
+      setShowSearchResults(false);
     }
   }, [nodes]);
 
@@ -525,17 +529,22 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
   // Close search results and filter menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+      const target = event.target as HTMLElement;
+
+      if (searchContainerRef.current && !searchContainerRef.current.contains(target)) {
         setShowSearchResults(false);
       }
-      if (filterMenuRef.current && !filterMenuRef.current.contains(event.target as Node)) {
+      if (filterMenuRef.current && !filterMenuRef.current.contains(target)) {
         setShowFilterMenu(false);
       }
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+    // Only add listener if menus are open
+    if (showSearchResults || showFilterMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showSearchResults, showFilterMenu]);
 
   // Handle search result selection
   const selectSearchResult = useCallback((node: Node) => {
@@ -544,10 +553,12 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
     setShowSearchResults(false);
   }, [showNodeById]);
 
-  // Close info panels when clicking on the background
+  // Close info panels and menus when clicking on the background
   const onPaneClick = useCallback(() => {
     setSelectedEdge(null);
     setSelectedNode(null);
+    setShowFilterMenu(false);
+    setShowSearchResults(false);
   }, []);
 
   // Toggle filter helpers
