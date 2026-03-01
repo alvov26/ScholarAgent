@@ -1,6 +1,6 @@
 'use client';
 
-import { X, Variable, BookOpen, Lightbulb } from 'lucide-react';
+import { X, Variable, BookOpen, Lightbulb, Focus } from 'lucide-react';
 import { LatexText } from './LatexText';
 
 interface NodeInfoPanelProps {
@@ -12,6 +12,8 @@ interface NodeInfoPanelProps {
   latex?: string;
   onClose: () => void;
   onNavigate: () => void;
+  onFocus?: () => void;
+  isFocused?: boolean;
 }
 
 // Node styling config matching GraphNode
@@ -51,6 +53,8 @@ export function NodeInfoPanel({
   latex,
   onClose,
   onNavigate,
+  onFocus,
+  isFocused,
 }: NodeInfoPanelProps) {
   const config = nodeConfig[nodeType];
   const Icon = config.icon;
@@ -112,13 +116,29 @@ export function NodeInfoPanel({
           </div>
         )}
 
-        {/* Navigate button */}
-        <button
-          onClick={onNavigate}
-          className="w-full px-3 py-2 text-sm font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
-        >
-          Jump to location in paper
-        </button>
+        {/* Action buttons */}
+        <div className="flex gap-2">
+          <button
+            onClick={onNavigate}
+            className="flex-1 px-3 py-2 text-sm font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
+          >
+            Jump to location in paper
+          </button>
+          {onFocus && (
+            <button
+              onClick={onFocus}
+              className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
+                isFocused
+                  ? 'text-amber-700 bg-amber-50 hover:bg-amber-100'
+                  : 'text-slate-600 bg-slate-100 hover:bg-slate-200'
+              }`}
+              title={isFocused ? 'Currently focused' : 'Focus on this node'}
+            >
+              <Focus size={14} />
+              {isFocused ? 'Focused' : 'Focus'}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

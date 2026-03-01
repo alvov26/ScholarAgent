@@ -14,6 +14,7 @@ interface GraphNodeData {
   latex?: string;
   domNodeId: string;
   onNavigate: () => void;
+  isFocused?: boolean;
 }
 
 // Colors and icons for different node types
@@ -58,6 +59,7 @@ function GraphNodeComponent({ data }: NodeProps<GraphNodeData>) {
         ${config.bgColor} ${config.borderColor} ${config.hoverBorderColor}
         cursor-pointer transition-all duration-150
         hover:shadow-md min-w-[120px] max-w-[180px]
+        ${data.isFocused ? 'ring-2 ring-amber-400 ring-offset-2' : ''}
       `}
       title={description ? `${data.label}: ${description}` : data.label}
     >

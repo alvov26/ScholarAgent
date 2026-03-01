@@ -22,7 +22,7 @@ import { GraphNode } from './GraphNode';
 import { KnowledgeGraphProgress } from './KnowledgeGraphProgress';
 import { EdgeInfoPanel } from './EdgeInfoPanel';
 import { NodeInfoPanel } from './NodeInfoPanel';
-import { Loader2, AlertCircle, Network, Search, X } from 'lucide-react';
+import { Loader2, AlertCircle, Network, Search, X, Focus, Maximize2 } from 'lucide-react';
 
 // Custom node types
 const nodeTypes = {
@@ -185,6 +185,14 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
+  // Focus mode (subgraph view) state
+  const [focusMode, setFocusMode] = useState(false);
+  const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
+
+  // Store the full graph data for filtering
+  const [allNodes, setAllNodes] = useState<Node[]>([]);
+  const [allEdges, setAllEdges] = useState<Edge[]>([]);
+
   // React Flow instance for programmatic control
   const reactFlowInstance = useReactFlow();
 
@@ -242,9 +250,17 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
         // Apply hierarchical layout
         const layouted = hierarchicalLayout(flowNodes, flowEdges);
 
+        // Store full graph for filtering
+        setAllNodes(layouted.nodes);
+        setAllEdges(layouted.edges);
+
         setNodes(layouted.nodes);
         setEdges(layouted.edges);
         setLoading(false);
+
+        // Reset focus mode when loading new data
+        setFocusMode(false);
+        setFocusedNodeId(null);
       })
       .catch(err => {
         setError(err.message);
@@ -277,6 +293,94 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
     setIsBuilding(false);
     setError(errorMsg);
   }, []);
+
+  // Compute subgraph: all ancestors and descendants of a node
+  const computeSubgraph = useCallback((nodeId: string, nodes: Node[], edges: Edge[]) => {
+    const connectedNodeIds = new Set<string>([nodeId]);
+
+    // Build adjacency lists for traversal
+    const children = new Map<string, string[]>(); // parent -> children
+    const parents = new Map<string, string[]>();  // child -> parents
+
+    edges.forEach(edge => {
+      // edge.source -> edge.target (source depends on / uses target, or target defines source)
+      if (!children.has(edge.source)) children.set(edge.source, []);
+      children.get(edge.source)!.push(edge.target);
+
+      if (!parents.has(edge.target)) parents.set(edge.target, []);
+      parents.get(edge.target)!.push(edge.source);
+    });
+
+    // BFS to find all descendants (children, grandchildren, etc.)
+    const queue = [nodeId];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      const childNodes = children.get(current) || [];
+      for (const child of childNodes) {
+        if (!connectedNodeIds.has(child)) {
+          connectedNodeIds.add(child);
+          queue.push(child);
+        }
+      }
+    }
+
+    // BFS to find all ancestors (parents, grandparents, etc.)
+    const ancestorQueue = [nodeId];
+    while (ancestorQueue.length > 0) {
+      const current = ancestorQueue.shift()!;
+      const parentNodes = parents.get(current) || [];
+      for (const parent of parentNodes) {
+        if (!connectedNodeIds.has(parent)) {
+          connectedNodeIds.add(parent);
+          ancestorQueue.push(parent);
+        }
+      }
+    }
+
+    // Filter nodes and edges
+    const filteredNodes = nodes.filter(n => connectedNodeIds.has(n.id));
+    const filteredEdges = edges.filter(e =>
+      connectedNodeIds.has(e.source) && connectedNodeIds.has(e.target)
+    );
+
+    return { nodes: filteredNodes, edges: filteredEdges };
+  }, []);
+
+  // Update displayed graph when focus mode or focused node changes
+  useEffect(() => {
+    if (!focusMode || !focusedNodeId) {
+      // Show full graph, clear any focus highlighting
+      if (allNodes.length > 0) {
+        const nodesWithoutFocus = allNodes.map(n => ({
+          ...n,
+          data: { ...n.data, isFocused: false }
+        }));
+        setNodes(nodesWithoutFocus);
+        setEdges(allEdges);
+      }
+      return;
+    }
+
+    // Compute and display subgraph
+    const subgraph = computeSubgraph(focusedNodeId, allNodes, allEdges);
+
+    // Mark the focused node
+    const nodesWithFocus = subgraph.nodes.map(n => ({
+      ...n,
+      data: { ...n.data, isFocused: n.id === focusedNodeId }
+    }));
+
+    // Re-layout the subgraph
+    const layouted = hierarchicalLayout([...nodesWithFocus], [...subgraph.edges]);
+
+    setNodes(layouted.nodes);
+    setEdges(layouted.edges);
+
+    // Fit view to show the subgraph
+    setTimeout(() => {
+      reactFlowInstance.fitView({ padding: 0.2, duration: 300 });
+    }, 50);
+  }, [focusMode, focusedNodeId, allNodes, allEdges, computeSubgraph, setNodes, setEdges, reactFlowInstance]);
 
   // Handle node click to show full details
   const onNodeClick: NodeMouseHandler = useCallback((event, node) => {
@@ -322,32 +426,43 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
 
   // Helper to show node info by ID and optionally center on it
   const showNodeById = useCallback((nodeId: string, centerOnNode = false) => {
-    const node = nodes.find(n => n.id === nodeId);
-    if (node) {
+    // Look in allNodes to find node data (in case we're in focus mode and node isn't displayed)
+    const nodeData = allNodes.find(n => n.id === nodeId);
+    if (nodeData) {
       setSelectedNode({
-        id: node.id,
-        label: node.data.label,
-        nodeType: node.data.nodeType,
-        context: node.data.context,
-        definition: node.data.definition,
-        statement: node.data.statement,
-        latex: node.data.latex,
-        onNavigate: node.data.onNavigate,
+        id: nodeData.id,
+        label: nodeData.data.label,
+        nodeType: nodeData.data.nodeType,
+        context: nodeData.data.context,
+        definition: nodeData.data.definition,
+        statement: nodeData.data.statement,
+        latex: nodeData.data.latex,
+        onNavigate: nodeData.data.onNavigate,
       });
       setSelectedEdge(null);
 
+      // If in focus mode, also focus on this node
+      if (focusMode) {
+        setFocusedNodeId(nodeId);
+      }
+
       if (centerOnNode) {
-        // Center the view on the selected node
-        reactFlowInstance.setCenter(
-          node.position.x + 90, // Center of node (nodeWidth/2)
-          node.position.y + 40, // Center of node (nodeHeight/2)
-          { zoom: 1, duration: 500 }
-        );
+        // Find the node in current display (might need to wait for focus mode update)
+        setTimeout(() => {
+          const displayedNode = nodes.find(n => n.id === nodeId);
+          if (displayedNode) {
+            reactFlowInstance.setCenter(
+              displayedNode.position.x + 90,
+              displayedNode.position.y + 40,
+              { zoom: 1, duration: 500 }
+            );
+          }
+        }, 100);
       }
     }
-  }, [nodes, reactFlowInstance]);
+  }, [allNodes, nodes, focusMode, reactFlowInstance]);
 
-  // Search functionality
+  // Search functionality - always search all nodes, not just displayed ones
   useEffect(() => {
     if (searchQuery.trim() === '') {
       setSearchResults([]);
@@ -356,7 +471,7 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
     }
 
     const query = searchQuery.toLowerCase();
-    const results = nodes.filter(node => {
+    const results = allNodes.filter(node => {
       const label = node.data.label?.toLowerCase() || '';
       const context = node.data.context?.toLowerCase() || '';
       const definition = node.data.definition?.toLowerCase() || '';
@@ -389,7 +504,7 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
 
     setSearchResults(results.slice(0, 10)); // Limit to 10 results
     setShowSearchResults(true);
-  }, [searchQuery, nodes]);
+  }, [searchQuery, allNodes]);
 
   // Close search results when clicking outside
   useEffect(() => {
@@ -545,9 +660,62 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
           )}
         </div>
 
+        {/* Focus mode toggle */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              if (focusMode) {
+                // Turning off focus mode
+                setFocusMode(false);
+                setFocusedNodeId(null);
+              } else {
+                // Turning on focus mode - use currently selected node if any
+                setFocusMode(true);
+                if (selectedNode) {
+                  setFocusedNodeId(selectedNode.id);
+                }
+              }
+            }}
+            className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded border transition-colors ${
+              focusMode
+                ? 'bg-indigo-100 text-indigo-700 border-indigo-300'
+                : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+            }`}
+            title={focusMode ? 'Show full graph' : 'Focus on selected node (show only ancestors & descendants)'}
+          >
+            {focusMode ? <Maximize2 size={12} /> : <Focus size={12} />}
+            {focusMode ? 'Show all' : 'Focus mode'}
+          </button>
+          {focusMode && focusedNodeId && (
+            <span className="text-xs text-slate-500">
+              Focusing on:{' '}
+              <button
+                onClick={() => {
+                  const node = nodes.find(n => n.id === focusedNodeId);
+                  if (node) {
+                    reactFlowInstance.setCenter(
+                      node.position.x + 90,
+                      node.position.y + 40,
+                      { zoom: 1, duration: 500 }
+                    );
+                  }
+                }}
+                className="font-medium text-indigo-600 hover:text-indigo-800 hover:underline"
+              >
+                {allNodes.find(n => n.id === focusedNodeId)?.data.label}
+              </button>
+            </span>
+          )}
+          {focusMode && !focusedNodeId && (
+            <span className="text-xs text-slate-400 italic">
+              Select a node to focus
+            </span>
+          )}
+        </div>
+
         {/* Stats */}
         {graphData?.metadata && (
-          <div className="text-xs text-slate-600 flex gap-4">
+          <div className="text-xs text-slate-600 flex gap-4 ml-auto">
             <span>{graphData.metadata.symbol_count} symbols</span>
             <span>{graphData.metadata.definition_count} definitions</span>
             <span>{graphData.metadata.theorem_count} theorems</span>
@@ -603,6 +771,11 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
               setSelectedNode(null);
             }}
             onClose={() => setSelectedNode(null)}
+            onFocus={() => {
+              setFocusMode(true);
+              setFocusedNodeId(selectedNode.id);
+            }}
+            isFocused={focusMode && focusedNodeId === selectedNode.id}
           />
         )}
 
