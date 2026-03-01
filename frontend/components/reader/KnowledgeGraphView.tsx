@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import ReactFlow, {
   Node,
   Edge,
@@ -9,6 +9,8 @@ import ReactFlow, {
   MiniMap,
   useNodesState,
   useEdgesState,
+  useReactFlow,
+  ReactFlowProvider,
   MarkerType,
   ConnectionLineType,
   EdgeMouseHandler,
@@ -20,7 +22,7 @@ import { GraphNode } from './GraphNode';
 import { KnowledgeGraphProgress } from './KnowledgeGraphProgress';
 import { EdgeInfoPanel } from './EdgeInfoPanel';
 import { NodeInfoPanel } from './NodeInfoPanel';
-import { Loader2, AlertCircle, Network } from 'lucide-react';
+import { Loader2, AlertCircle, Network, Search, X } from 'lucide-react';
 
 // Custom node types
 const nodeTypes = {
@@ -150,7 +152,7 @@ function hierarchicalLayout(nodes: Node[], edges: Edge[]): { nodes: Node[]; edge
   return { nodes, edges };
 }
 
-export function KnowledgeGraphView({ paperId, onNavigate }: KnowledgeGraphViewProps) {
+function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [loading, setLoading] = useState(true);
@@ -166,6 +168,7 @@ export function KnowledgeGraphView({ paperId, onNavigate }: KnowledgeGraphViewPr
     evidence?: string;
   } | null>(null);
   const [selectedNode, setSelectedNode] = useState<{
+    id: string;
     label: string;
     nodeType: 'symbol' | 'definition' | 'theorem';
     context?: string;
@@ -174,6 +177,16 @@ export function KnowledgeGraphView({ paperId, onNavigate }: KnowledgeGraphViewPr
     latex?: string;
     onNavigate: () => void;
   } | null>(null);
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Node[]>([]);
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  // React Flow instance for programmatic control
+  const reactFlowInstance = useReactFlow();
 
   // Fetch graph data
   const fetchGraphData = useCallback(() => {
@@ -270,6 +283,7 @@ export function KnowledgeGraphView({ paperId, onNavigate }: KnowledgeGraphViewPr
     event.stopPropagation();
 
     setSelectedNode({
+      id: node.id,
       label: node.data.label,
       nodeType: node.data.nodeType,
       context: node.data.context,
@@ -306,11 +320,12 @@ export function KnowledgeGraphView({ paperId, onNavigate }: KnowledgeGraphViewPr
     }
   }, [nodes]);
 
-  // Helper to show node info by ID
-  const showNodeById = useCallback((nodeId: string) => {
+  // Helper to show node info by ID and optionally center on it
+  const showNodeById = useCallback((nodeId: string, centerOnNode = false) => {
     const node = nodes.find(n => n.id === nodeId);
     if (node) {
       setSelectedNode({
+        id: node.id,
         label: node.data.label,
         nodeType: node.data.nodeType,
         context: node.data.context,
@@ -320,8 +335,80 @@ export function KnowledgeGraphView({ paperId, onNavigate }: KnowledgeGraphViewPr
         onNavigate: node.data.onNavigate,
       });
       setSelectedEdge(null);
+
+      if (centerOnNode) {
+        // Center the view on the selected node
+        reactFlowInstance.setCenter(
+          node.position.x + 90, // Center of node (nodeWidth/2)
+          node.position.y + 40, // Center of node (nodeHeight/2)
+          { zoom: 1, duration: 500 }
+        );
+      }
     }
-  }, [nodes]);
+  }, [nodes, reactFlowInstance]);
+
+  // Search functionality
+  useEffect(() => {
+    if (searchQuery.trim() === '') {
+      setSearchResults([]);
+      setShowSearchResults(false);
+      return;
+    }
+
+    const query = searchQuery.toLowerCase();
+    const results = nodes.filter(node => {
+      const label = node.data.label?.toLowerCase() || '';
+      const context = node.data.context?.toLowerCase() || '';
+      const definition = node.data.definition?.toLowerCase() || '';
+      const statement = node.data.statement?.toLowerCase() || '';
+      return label.includes(query) || context.includes(query) || definition.includes(query) || statement.includes(query);
+    });
+
+    // Sort results:
+    // 1. Label matches first, then content matches
+    // 2. Within each group: definitions > theorems > symbols
+    const typePriority: Record<string, number> = {
+      definition: 0,
+      theorem: 1,
+      symbol: 2,
+    };
+
+    results.sort((a, b) => {
+      const aLabelMatch = (a.data.label?.toLowerCase() || '').includes(query);
+      const bLabelMatch = (b.data.label?.toLowerCase() || '').includes(query);
+
+      // Label matches come first
+      if (aLabelMatch && !bLabelMatch) return -1;
+      if (!aLabelMatch && bLabelMatch) return 1;
+
+      // Within same match type, sort by node type priority
+      const aPriority = typePriority[a.data.nodeType] ?? 3;
+      const bPriority = typePriority[b.data.nodeType] ?? 3;
+      return aPriority - bPriority;
+    });
+
+    setSearchResults(results.slice(0, 10)); // Limit to 10 results
+    setShowSearchResults(true);
+  }, [searchQuery, nodes]);
+
+  // Close search results when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+        setShowSearchResults(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Handle search result selection
+  const selectSearchResult = useCallback((node: Node) => {
+    showNodeById(node.id, true);
+    setSearchQuery('');
+    setShowSearchResults(false);
+  }, [showNodeById]);
 
   // Close info panels when clicking on the background
   const onPaneClick = useCallback(() => {
@@ -383,18 +470,92 @@ export function KnowledgeGraphView({ paperId, onNavigate }: KnowledgeGraphViewPr
     );
   }
 
+  // Get node type color for search results
+  const getNodeTypeColor = (nodeType: string) => {
+    switch (nodeType) {
+      case 'symbol': return 'bg-blue-100 text-blue-700';
+      case 'definition': return 'bg-emerald-100 text-emerald-700';
+      case 'theorem': return 'bg-violet-100 text-violet-700';
+      default: return 'bg-slate-100 text-slate-700';
+    }
+  };
+
   return (
     <div className="w-full h-full">
-      {/* Stats bar */}
-      {graphData?.metadata && (
-        <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 text-xs text-slate-600 flex gap-4">
-          <span>{graphData.metadata.symbol_count} symbols</span>
-          <span>{graphData.metadata.definition_count} definitions</span>
-          <span>{graphData.metadata.theorem_count} theorems</span>
-          <span className="text-slate-400">|</span>
-          <span>{graphData.metadata.edge_count} relationships</span>
+      {/* Search and stats bar */}
+      <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center gap-4">
+        {/* Search bar */}
+        <div ref={searchContainerRef} className="relative flex-shrink-0">
+          <div className="relative">
+            <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onFocus={() => searchQuery && setShowSearchResults(true)}
+              placeholder="Search entities..."
+              className="w-48 pl-7 pr-7 py-1 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setShowSearchResults(false);
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
+          {/* Search results dropdown */}
+          {showSearchResults && searchResults.length > 0 && (
+            <div className="absolute top-full left-0 mt-1 w-72 bg-white rounded-md shadow-lg border border-slate-200 z-50 max-h-64 overflow-y-auto">
+              {searchResults.map((node) => (
+                <button
+                  key={node.id}
+                  onClick={() => selectSearchResult(node)}
+                  className="w-full px-3 py-2 text-left hover:bg-slate-50 border-b border-slate-100 last:border-b-0"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${getNodeTypeColor(node.data.nodeType)}`}>
+                      {node.data.nodeType}
+                    </span>
+                    <span className="text-sm font-medium text-slate-800 truncate">
+                      {node.data.label}
+                    </span>
+                  </div>
+                  {node.data.context && (
+                    <p className="text-xs text-slate-500 mt-0.5 truncate">
+                      {node.data.context}
+                    </p>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* No results message */}
+          {showSearchResults && searchQuery && searchResults.length === 0 && (
+            <div className="absolute top-full left-0 mt-1 w-72 bg-white rounded-md shadow-lg border border-slate-200 z-50 p-3">
+              <p className="text-xs text-slate-500 text-center">No entities found</p>
+            </div>
+          )}
         </div>
-      )}
+
+        {/* Stats */}
+        {graphData?.metadata && (
+          <div className="text-xs text-slate-600 flex gap-4">
+            <span>{graphData.metadata.symbol_count} symbols</span>
+            <span>{graphData.metadata.definition_count} definitions</span>
+            <span>{graphData.metadata.theorem_count} theorems</span>
+            <span className="text-slate-400">|</span>
+            <span>{graphData.metadata.edge_count} relationships</span>
+          </div>
+        )}
+      </div>
 
       {/* Graph */}
       <div className="w-full relative" style={{ height: 'calc(100% - 36px)' }}>
@@ -459,5 +620,14 @@ export function KnowledgeGraphView({ paperId, onNavigate }: KnowledgeGraphViewPr
         )}
       </div>
     </div>
+  );
+}
+
+// Wrapper component that provides ReactFlow context
+export function KnowledgeGraphView(props: KnowledgeGraphViewProps) {
+  return (
+    <ReactFlowProvider>
+      <KnowledgeGraphViewInner {...props} />
+    </ReactFlowProvider>
   );
 }
