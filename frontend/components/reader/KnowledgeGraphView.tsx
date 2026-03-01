@@ -715,12 +715,8 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
 
         {/* Stats */}
         {graphData?.metadata && (
-          <div className="text-xs text-slate-600 flex gap-4 ml-auto">
-            <span>{graphData.metadata.symbol_count} symbols</span>
-            <span>{graphData.metadata.definition_count} definitions</span>
-            <span>{graphData.metadata.theorem_count} theorems</span>
-            <span className="text-slate-400">|</span>
-            <span>{graphData.metadata.edge_count} relationships</span>
+          <div className="text-xs text-slate-500 ml-auto" title="Symbols / Definitions / Theorems / Relationships">
+            {graphData.metadata.symbol_count}S · {graphData.metadata.definition_count}D · {graphData.metadata.theorem_count}T · {graphData.metadata.edge_count}R
           </div>
         )}
       </div>
