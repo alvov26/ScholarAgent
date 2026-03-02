@@ -746,43 +746,6 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
           )}
         </div>
 
-        {/* Focus mode indicator */}
-        {focusMode && focusedNodeId ? (
-          <div className="flex items-center gap-1.5 px-2 py-1 text-xs bg-indigo-50 rounded border border-indigo-200">
-            <span className="text-slate-600">Focusing on:</span>
-            <button
-              onClick={() => {
-                showNodeById(focusedNodeId, true);
-              }}
-              className="font-medium text-indigo-700 hover:text-indigo-900 hover:underline max-w-[200px] truncate"
-              title={allNodes.find(n => n.id === focusedNodeId)?.data.label}
-            >
-              {allNodes.find(n => n.id === focusedNodeId)?.data.label}
-            </button>
-            <button
-              onClick={() => {
-                setFocusMode(false);
-                setFocusedNodeId(null);
-              }}
-              className="text-slate-400 hover:text-slate-600 ml-1"
-              title="Exit focus mode"
-            >
-              <X size={12} />
-            </button>
-          </div>
-        ) : focusMode && !focusedNodeId ? (
-          <div className="flex items-center gap-1.5 px-2 py-1 text-xs bg-amber-50 rounded border border-amber-200">
-            <span className="text-amber-700 italic">Select a node to focus</span>
-            <button
-              onClick={() => setFocusMode(false)}
-              className="text-amber-400 hover:text-amber-600"
-              title="Exit focus mode"
-            >
-              <X size={12} />
-            </button>
-          </div>
-        ) : null}
-
         {/* Filter menu */}
         <div ref={filterMenuRef} className="relative">
           <button
@@ -906,6 +869,47 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
             maskColor="rgba(255, 255, 255, 0.8)"
           />
         </ReactFlow>
+
+        {/* Focus mode indicator - top left overlay */}
+        {focusMode && (
+          <div className="absolute top-4 left-4 z-10">
+            {focusedNodeId ? (
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-white rounded-lg shadow-md border border-indigo-200">
+                <Focus size={12} className="text-indigo-500" />
+                <span className="text-slate-600">Focusing on:</span>
+                <button
+                  onClick={() => showNodeById(focusedNodeId, true)}
+                  className="font-medium text-indigo-700 hover:text-indigo-900 hover:underline max-w-[150px] truncate"
+                  title={allNodes.find(n => n.id === focusedNodeId)?.data.label}
+                >
+                  {allNodes.find(n => n.id === focusedNodeId)?.data.label}
+                </button>
+                <button
+                  onClick={() => {
+                    setFocusMode(false);
+                    setFocusedNodeId(null);
+                  }}
+                  className="text-slate-400 hover:text-slate-600 ml-0.5"
+                  title="Exit focus mode"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-white rounded-lg shadow-md border border-amber-200">
+                <Focus size={12} className="text-amber-500" />
+                <span className="text-amber-700 italic">Select a node to focus</span>
+                <button
+                  onClick={() => setFocusMode(false)}
+                  className="text-amber-400 hover:text-amber-600 ml-0.5"
+                  title="Exit focus mode"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Node info panel */}
         {selectedNode && (() => {
