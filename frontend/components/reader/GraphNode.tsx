@@ -80,11 +80,7 @@ function GraphNodeComponent({ data }: NodeProps<GraphNodeData>) {
 
       {/* Label */}
       <div className={`text-sm font-semibold ${config.textColor} truncate`}>
-        {data.latex ? (
-          <LatexText text={data.latex} className="inline" />
-        ) : (
-          data.label
-        )}
+        <LatexText text={data.latex || data.label} className="inline" />
       </div>
 
       {/* Description preview */}
