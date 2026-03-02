@@ -57,7 +57,7 @@ export default function NavigationPanel({
 
       {/* Content - both components stay mounted to preserve state */}
       <div className="flex-1 overflow-hidden relative">
-        <div className={`h-full overflow-y-auto p-3 ${mode === 'toc' ? '' : 'hidden'}`}>
+        <div className={`h-full overflow-y-auto ${mode === 'toc' ? '' : 'hidden'}`}>
           <TableOfContents
             nodes={toc}
             onNavigate={onNavigate}
