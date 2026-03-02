@@ -21,7 +21,7 @@ import dagre from 'dagre';
 import { GraphNode } from './GraphNode';
 import { KnowledgeGraphProgress } from './KnowledgeGraphProgress';
 import { EdgeInfoPanel } from './EdgeInfoPanel';
-import { NodeInfoPanel } from './NodeInfoPanel';
+import { NodeInfoPanel, ConnectionInfo } from './NodeInfoPanel';
 import { Loader2, AlertCircle, Network, Search, X, Focus, Maximize2, Filter, ChevronDown } from 'lucide-react';
 
 // Custom node types
@@ -461,26 +461,19 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
       });
       setSelectedEdge(null);
 
-      // If in focus mode, also focus on this node
-      if (focusMode) {
-        setFocusedNodeId(nodeId);
-      }
-
       if (centerOnNode) {
-        // Find the node in current display (might need to wait for focus mode update)
-        setTimeout(() => {
-          const displayedNode = nodes.find(n => n.id === nodeId);
-          if (displayedNode) {
-            reactFlowInstance.setCenter(
-              displayedNode.position.x + 90,
-              displayedNode.position.y + 40,
-              { zoom: 1, duration: 500 }
-            );
-          }
-        }, 100);
+        // Find the node in current display
+        const displayedNode = nodes.find(n => n.id === nodeId);
+        if (displayedNode) {
+          reactFlowInstance.setCenter(
+            displayedNode.position.x + 90,
+            displayedNode.position.y + 40,
+            { zoom: 1, duration: 500 }
+          );
+        }
       }
     }
-  }, [allNodes, nodes, focusMode, reactFlowInstance]);
+  }, [allNodes, nodes, reactFlowInstance]);
 
   // Search functionality - always search all nodes, not just displayed ones
   useEffect(() => {
@@ -588,6 +581,41 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
 
   // Check if any filters are active
   const hasActiveFilters = visibleNodeTypes.size < 3 || visibleEdgeTypes.size < 5;
+
+  // Compute connections for a node
+  const getNodeConnections = useCallback((nodeId: string): { incoming: ConnectionInfo[], outgoing: ConnectionInfo[] } => {
+    const incoming: ConnectionInfo[] = [];
+    const outgoing: ConnectionInfo[] = [];
+
+    allEdges.forEach(edge => {
+      if (edge.target === nodeId) {
+        // Incoming edge: source -> this node
+        const sourceNode = allNodes.find(n => n.id === edge.source);
+        if (sourceNode) {
+          incoming.push({
+            nodeId: sourceNode.id,
+            nodeLabel: sourceNode.data.label,
+            nodeType: sourceNode.data.nodeType,
+            relationshipType: edge.label as string,
+          });
+        }
+      }
+      if (edge.source === nodeId) {
+        // Outgoing edge: this node -> target
+        const targetNode = allNodes.find(n => n.id === edge.target);
+        if (targetNode) {
+          outgoing.push({
+            nodeId: targetNode.id,
+            nodeLabel: targetNode.data.label,
+            nodeType: targetNode.data.nodeType,
+            relationshipType: edge.label as string,
+          });
+        }
+      }
+    });
+
+    return { incoming, outgoing };
+  }, [allNodes, allEdges]);
 
   // Show progress during build
   if (isBuilding) {
@@ -880,26 +908,32 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
         </ReactFlow>
 
         {/* Node info panel */}
-        {selectedNode && (
-          <NodeInfoPanel
-            label={selectedNode.label}
-            nodeType={selectedNode.nodeType}
-            context={selectedNode.context}
-            definition={selectedNode.definition}
-            statement={selectedNode.statement}
-            latex={selectedNode.latex}
-            onNavigate={() => {
-              selectedNode.onNavigate();
-              setSelectedNode(null);
-            }}
-            onClose={() => setSelectedNode(null)}
-            onFocus={() => {
-              setFocusMode(true);
-              setFocusedNodeId(selectedNode.id);
-            }}
-            isFocused={focusMode && focusedNodeId === selectedNode.id}
-          />
-        )}
+        {selectedNode && (() => {
+          const connections = getNodeConnections(selectedNode.id);
+          return (
+            <NodeInfoPanel
+              label={selectedNode.label}
+              nodeType={selectedNode.nodeType}
+              context={selectedNode.context}
+              definition={selectedNode.definition}
+              statement={selectedNode.statement}
+              latex={selectedNode.latex}
+              onNavigate={() => {
+                selectedNode.onNavigate();
+                setSelectedNode(null);
+              }}
+              onClose={() => setSelectedNode(null)}
+              onFocus={() => {
+                setFocusMode(true);
+                setFocusedNodeId(selectedNode.id);
+              }}
+              isFocused={focusMode && focusedNodeId === selectedNode.id}
+              incomingConnections={connections.incoming}
+              outgoingConnections={connections.outgoing}
+              onConnectionClick={(nodeId) => showNodeById(nodeId, true)}
+            />
+          );
+        })()}
 
         {/* Edge info panel */}
         {selectedEdge && (

@@ -1,7 +1,15 @@
 'use client';
 
-import { X, Variable, BookOpen, Lightbulb, Focus } from 'lucide-react';
+import { useState } from 'react';
+import { X, Variable, BookOpen, Lightbulb, Focus, ChevronRight, ChevronDown } from 'lucide-react';
 import { LatexText } from './LatexText';
+
+export interface ConnectionInfo {
+  nodeId: string;
+  nodeLabel: string;
+  nodeType: 'symbol' | 'definition' | 'theorem';
+  relationshipType: string;
+}
 
 interface NodeInfoPanelProps {
   label: string;
@@ -14,6 +22,9 @@ interface NodeInfoPanelProps {
   onNavigate: () => void;
   onFocus?: () => void;
   isFocused?: boolean;
+  incomingConnections?: ConnectionInfo[];
+  outgoingConnections?: ConnectionInfo[];
+  onConnectionClick?: (nodeId: string) => void;
 }
 
 // Node styling config matching GraphNode
@@ -44,6 +55,26 @@ const nodeConfig = {
   },
 };
 
+// Relationship type colors
+const relationshipColors: Record<string, string> = {
+  uses: 'text-indigo-600',
+  depends_on: 'text-amber-600',
+  defines: 'text-emerald-600',
+  extends: 'text-violet-600',
+  mentions: 'text-slate-500',
+};
+
+// Group connections by relationship type
+function groupByRelationship(connections: ConnectionInfo[]): Record<string, ConnectionInfo[]> {
+  return connections.reduce((acc, conn) => {
+    if (!acc[conn.relationshipType]) {
+      acc[conn.relationshipType] = [];
+    }
+    acc[conn.relationshipType].push(conn);
+    return acc;
+  }, {} as Record<string, ConnectionInfo[]>);
+}
+
 export function NodeInfoPanel({
   label,
   nodeType,
@@ -55,12 +86,22 @@ export function NodeInfoPanel({
   onNavigate,
   onFocus,
   isFocused,
+  incomingConnections = [],
+  outgoingConnections = [],
+  onConnectionClick,
 }: NodeInfoPanelProps) {
   const config = nodeConfig[nodeType];
   const Icon = config.icon;
 
+  const [incomingExpanded, setIncomingExpanded] = useState(false);
+  const [outgoingExpanded, setOutgoingExpanded] = useState(false);
+
   // Determine what content to show based on node type
   const mainContent = definition || statement || context;
+
+  // Group connections by relationship type
+  const incomingGrouped = groupByRelationship(incomingConnections);
+  const outgoingGrouped = groupByRelationship(outgoingConnections);
 
   return (
     <div className="absolute top-4 right-4 bg-white rounded-lg shadow-lg border border-slate-200 w-96 max-h-[32rem] overflow-y-auto z-10">
@@ -113,6 +154,84 @@ export function NodeInfoPanel({
             <div className="text-sm text-slate-700 leading-relaxed">
               <LatexText text={context} />
             </div>
+          </div>
+        )}
+
+        {/* Incoming connections */}
+        {incomingConnections.length > 0 && (
+          <div className="border-t border-slate-100 pt-3">
+            <button
+              onClick={() => setIncomingExpanded(!incomingExpanded)}
+              className="flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-800 w-full"
+            >
+              {incomingExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              Incoming ({incomingConnections.length})
+            </button>
+            {incomingExpanded && (
+              <div className="mt-2 space-y-2">
+                {Object.entries(incomingGrouped).map(([relType, connections]) => (
+                  <div key={relType} className="pl-4">
+                    <div className={`text-[10px] font-semibold uppercase tracking-wider mb-1 ${relationshipColors[relType] || 'text-slate-500'}`}>
+                      {relType.replace('_', ' ')}
+                    </div>
+                    <div className="space-y-0.5">
+                      {connections.map((conn) => (
+                        <button
+                          key={conn.nodeId}
+                          onClick={() => onConnectionClick?.(conn.nodeId)}
+                          className="flex items-center gap-1.5 text-xs text-slate-700 hover:text-indigo-600 hover:underline w-full text-left"
+                        >
+                          <span className={`w-1.5 h-1.5 rounded-full ${
+                            conn.nodeType === 'symbol' ? 'bg-blue-500' :
+                            conn.nodeType === 'definition' ? 'bg-emerald-500' : 'bg-violet-500'
+                          }`} />
+                          <span className="truncate">{conn.nodeLabel}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Outgoing connections */}
+        {outgoingConnections.length > 0 && (
+          <div className="border-t border-slate-100 pt-3">
+            <button
+              onClick={() => setOutgoingExpanded(!outgoingExpanded)}
+              className="flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-800 w-full"
+            >
+              {outgoingExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              Outgoing ({outgoingConnections.length})
+            </button>
+            {outgoingExpanded && (
+              <div className="mt-2 space-y-2">
+                {Object.entries(outgoingGrouped).map(([relType, connections]) => (
+                  <div key={relType} className="pl-4">
+                    <div className={`text-[10px] font-semibold uppercase tracking-wider mb-1 ${relationshipColors[relType] || 'text-slate-500'}`}>
+                      {relType.replace('_', ' ')}
+                    </div>
+                    <div className="space-y-0.5">
+                      {connections.map((conn) => (
+                        <button
+                          key={conn.nodeId}
+                          onClick={() => onConnectionClick?.(conn.nodeId)}
+                          className="flex items-center gap-1.5 text-xs text-slate-700 hover:text-indigo-600 hover:underline w-full text-left"
+                        >
+                          <span className={`w-1.5 h-1.5 rounded-full ${
+                            conn.nodeType === 'symbol' ? 'bg-blue-500' :
+                            conn.nodeType === 'definition' ? 'bg-emerald-500' : 'bg-violet-500'
+                          }`} />
+                          <span className="truncate">{conn.nodeLabel}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
