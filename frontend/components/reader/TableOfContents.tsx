@@ -118,11 +118,11 @@ export default function TableOfContents({
 }: TableOfContentsProps) {
   if (nodes.length === 0) {
     return (
-      <div className="bg-slate-50 rounded-lg border border-slate-200 p-6 text-center">
-        <FileText size={32} className="mx-auto text-slate-300 mb-2" />
-        <p className="text-sm text-slate-500">No table of contents available</p>
-        <p className="text-xs text-slate-400 mt-1">
-          Compile a paper with sections to see the outline
+      <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-3 p-6 text-center">
+        <FileText size={32} className="text-slate-300" />
+        <p className="text-sm font-medium">No table of contents available</p>
+        <p className="text-xs text-slate-400">
+          Compile a paper with sections to see the outline.
         </p>
       </div>
     );
