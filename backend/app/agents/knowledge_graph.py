@@ -175,12 +175,22 @@ class GraphState(TypedDict):
 # Pydantic Models for Structured Output
 # =============================================================================
 
+class Occurrence(BaseModel):
+    """A single occurrence of an entity in the document"""
+    section_id: str = Field(description="ID of the section where this occurs")
+    dom_node_id: str = Field(description="ID of the DOM node (paragraph/block)")
+    char_offset: int = Field(description="Character offset from start of node's text content")
+    length: int = Field(description="Length of the matched text")
+    snippet: str = Field(description="Text snippet around the occurrence (for context)")
+
+
 class Symbol(BaseModel):
     """A mathematical symbol extracted from the paper"""
     symbol: str = Field(description="The symbol as it appears (e.g., α_t, x)")
     latex: str = Field(description="LaTeX representation wrapped in dollar signs for rendering (e.g., $\\alpha_t$, $x$)")
     context: str = Field(description="Brief explanation of what it represents (1 sentence)")
     is_definition: bool = Field(description="Is this where the symbol is first defined/introduced?")
+    occurrences: List[Occurrence] = Field(default_factory=list, description="All occurrences of this symbol in the document")
 
 
 class SymbolExtractionOutput(BaseModel):
@@ -195,6 +205,7 @@ class Definition(BaseModel):
     summary: str = Field(description="1-2 sentence summary of the definition for quick understanding")
     is_formal: bool = Field(description="Is this a numbered/formal definition (e.g., 'Definition 3.2')?")
     definition_number: Optional[str] = Field(default=None, description="The number if formal (e.g., '3.2')")
+    occurrences: List[Occurrence] = Field(default_factory=list, description="All occurrences of this term in the document")
 
 
 class DefinitionExtractionOutput(BaseModel):
@@ -209,6 +220,7 @@ class Theorem(BaseModel):
     name: Optional[str] = Field(default=None, description="Optional name (e.g., 'Convergence Theorem')")
     statement: str = Field(description="The actual theorem statement")
     summary: str = Field(description="1-2 sentence summary of what the theorem establishes")
+    occurrences: List[Occurrence] = Field(default_factory=list, description="All references to this theorem in the document")
 
 
 class TheoremExtractionOutput(BaseModel):
@@ -419,6 +431,120 @@ Extract all dependency relationships visible in this section."""
 
 
 # =============================================================================
+# Occurrence Detection Utilities
+# =============================================================================
+
+def find_all_occurrences_plaintext(text: str, term: str, case_sensitive: bool = True) -> List[int]:
+    """
+    Find all occurrences of a term in text using plain text search.
+
+    Args:
+        text: The text to search in
+        term: The term to find
+        case_sensitive: Whether to match case exactly
+
+    Returns:
+        List of character offsets where term appears
+    """
+    import re
+
+    if not text or not term:
+        return []
+
+    # Escape special regex characters in the term
+    escaped_term = re.escape(term)
+
+    # Create pattern - use word boundaries for better matching
+    # But be flexible for math symbols that might not have word boundaries
+    pattern = escaped_term
+
+    flags = 0 if case_sensitive else re.IGNORECASE
+
+    try:
+        matches = re.finditer(pattern, text, flags)
+        return [m.start() for m in matches]
+    except re.error:
+        # Fallback to simple string search if regex fails
+        if case_sensitive:
+            offset = 0
+            positions = []
+            while True:
+                pos = text.find(term, offset)
+                if pos == -1:
+                    break
+                positions.append(pos)
+                offset = pos + 1
+            return positions
+        else:
+            text_lower = text.lower()
+            term_lower = term.lower()
+            offset = 0
+            positions = []
+            while True:
+                pos = text_lower.find(term_lower, offset)
+                if pos == -1:
+                    break
+                positions.append(pos)
+                offset = pos + 1
+            return positions
+
+
+def extract_occurrences_for_entity(
+    term: str,
+    sections: List[Dict[str, Any]],
+    max_snippet_chars: int = 40
+) -> List[Dict[str, Any]]:
+    """
+    Find all occurrences of a term across all sections.
+
+    Args:
+        term: The term to find (plain text representation)
+        sections: List of section dicts with content_html
+        max_snippet_chars: Characters to include in context snippet (before and after)
+
+    Returns:
+        List of occurrence dicts with section_id, dom_node_id, char_offset, length, snippet
+    """
+    occurrences = []
+
+    for section in sections:
+        section_id = section.get("id", "unknown")
+        dom_node_id = section.get("dom_node_id", section_id)
+        content_html = section.get("content_html", "")
+
+        # Strip HTML to get plain text
+        content_text = _strip_html_tags(content_html)
+
+        if not content_text:
+            continue
+
+        # Find all occurrences in this section
+        offsets = find_all_occurrences_plaintext(content_text, term, case_sensitive=False)
+
+        for offset in offsets:
+            # Extract snippet (context around the match)
+            snippet_start = max(0, offset - max_snippet_chars)
+            snippet_end = min(len(content_text), offset + len(term) + max_snippet_chars)
+            snippet = content_text[snippet_start:snippet_end]
+
+            # Add ellipsis if truncated
+            if snippet_start > 0:
+                snippet = "..." + snippet
+            if snippet_end < len(content_text):
+                snippet = snippet + "..."
+
+            occurrences.append({
+                "section_id": section_id,
+                "dom_node_id": dom_node_id,
+                "char_offset": offset,
+                "length": len(term),
+                "snippet": snippet
+            })
+
+    return occurrences
+
+
+# =============================================================================
 # Agent Functions
 # =============================================================================
 
@@ -551,6 +677,13 @@ def extract_symbols(state: GraphState) -> GraphState:
             print(f"✓ ({count} symbols)")
 
             for symbol in response.symbols:
+                # Track occurrences across all sections for this symbol
+                # Use the plain text representation for searching
+                occurrences_data = extract_occurrences_for_entity(
+                    term=symbol.symbol,  # Use the plain text form
+                    sections=state["sections"]
+                )
+
                 symbols.append({
                     "symbol": symbol.symbol,
                     "latex": symbol.latex,
@@ -558,6 +691,7 @@ def extract_symbols(state: GraphState) -> GraphState:
                     "is_definition": symbol.is_definition,
                     "section_id": section_id,
                     "dom_node_id": section_id,
+                    "occurrences": occurrences_data,  # NEW: Add occurrence tracking
                 })
 
             _report_progress(state, "symbols", idx, len(sections_to_process))
@@ -642,6 +776,12 @@ def extract_definitions(state: GraphState) -> GraphState:
             print(f"✓ ({count} definitions)")
 
             for defn in response.definitions:
+                # Track occurrences across all sections for this definition term
+                occurrences_data = extract_occurrences_for_entity(
+                    term=defn.term,
+                    sections=state["sections"]
+                )
+
                 definitions.append({
                     "term": defn.term,
                     "definition_text": defn.definition_text,
@@ -650,6 +790,7 @@ def extract_definitions(state: GraphState) -> GraphState:
                     "definition_number": defn.definition_number,
                     "section_id": section_id,
                     "dom_node_id": section_id,
+                    "occurrences": occurrences_data,  # NEW: Add occurrence tracking
                 })
 
             _report_progress(state, "definitions", idx, len(sections_to_process))
@@ -734,6 +875,14 @@ def extract_theorems(state: GraphState) -> GraphState:
             print(f"✓ ({count} theorems)")
 
             for thm in response.theorems:
+                # Track occurrences/references to this theorem
+                # Search for references like "Theorem 3.2", "Lemma 1", etc.
+                theorem_label = f"{thm.type.capitalize()} {thm.number}"
+                occurrences_data = extract_occurrences_for_entity(
+                    term=theorem_label,
+                    sections=state["sections"]
+                )
+
                 theorems.append({
                     "type": thm.type,
                     "number": thm.number,
@@ -742,6 +891,7 @@ def extract_theorems(state: GraphState) -> GraphState:
                     "summary": thm.summary,
                     "section_id": section_id,
                     "dom_node_id": section_id,
+                    "occurrences": occurrences_data,  # NEW: Add occurrence tracking
                 })
 
             _report_progress(state, "theorems", idx, len(sections_to_process))

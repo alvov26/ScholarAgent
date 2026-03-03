@@ -7,6 +7,8 @@ import { HTMLRenderer } from "./HTMLRenderer";
 import ResizableLayout from "./ResizableLayout";
 import NavigationPanel from "./NavigationPanel";
 import TooltipPanel from "./TooltipPanel";
+import TooltipSuggestionModal, { TooltipSuggestion } from "./TooltipSuggestionModal";
+import SuggestTooltipsButton from "./SuggestTooltipsButton";
 import { parseTOC, TOCNode } from "@/utils/parseTOC";
 import { Loader2, Upload, ExternalLink, Trash2, RefreshCw, FileText, AlertCircle, Network } from "lucide-react";
 
@@ -59,6 +61,12 @@ export default function PaperLoader() {
   const [currentPaper, setCurrentPaper] = useState<PaperDetail | null>(null);
   const [arxivInput, setArxivInput] = useState("");
   const [status, setStatus] = useState<string>("");
+
+  // Tooltip suggestion state
+  const [showSuggestionModal, setShowSuggestionModal] = useState(false);
+  const [suggestions, setSuggestions] = useState<TooltipSuggestion[]>([]);
+  const [totalEntityCount, setTotalEntityCount] = useState(0);
+  const [suggesting, setSuggesting] = useState(false);
 
   const {
     tooltipMap,
@@ -193,6 +201,79 @@ export default function PaperLoader() {
       setCurrentPaper(null);
     }
     setStatus("");
+  };
+
+  // Handle suggest tooltips
+  const handleSuggestTooltips = async (expertise: string) => {
+    if (!selectedPaperId) return;
+
+    setSuggesting(true);
+    setStatus('Generating tooltip suggestions...');
+
+    try {
+      const response = await fetch(`http://localhost:8000/api/papers/${selectedPaperId}/tooltips/suggest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_expertise: expertise,
+          entity_types: null,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to suggest tooltips: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      setSuggestions(data.suggestions);
+      setTotalEntityCount(data.total_entities);
+      setShowSuggestionModal(true);
+      setStatus(`Found ${data.suggested_count} tooltips to suggest`);
+    } catch (error: any) {
+      console.error('Error suggesting tooltips:', error);
+      setStatus(`Error: ${error.message}`);
+    } finally {
+      setSuggesting(false);
+    }
+  };
+
+  // Handle apply suggestions
+  const handleApplySuggestions = async (selectedSuggestions: TooltipSuggestion[]) => {
+    if (!selectedPaperId) return;
+
+    setStatus('Applying tooltips...');
+
+    try {
+      const response = await fetch(`http://localhost:8000/api/papers/${selectedPaperId}/tooltips/apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          suggestions: selectedSuggestions,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to apply tooltips: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      setStatus(`Applied ${data.spans_injected} tooltips (${data.tooltips_created} entities)`);
+
+      // Close modal
+      setShowSuggestionModal(false);
+
+      // Reload paper to show updated HTML
+      if (selectedPaperId) {
+        await fetchPaper(selectedPaperId).then(paper => {
+          if (paper) {
+            setCurrentPaper(paper);
+          }
+        });
+      }
+    } catch (error: any) {
+      console.error('Error applying tooltips:', error);
+      setStatus(`Error: ${error.message}`);
+    }
   };
 
   const error = papersError || tooltipsError;
@@ -396,6 +477,11 @@ export default function PaperLoader() {
               <Network size={12} />
               Build Graph
             </button>
+            <SuggestTooltipsButton
+              disabled={!currentPaper?.has_knowledge_graph || loading}
+              loading={suggesting}
+              onSuggest={handleSuggestTooltips}
+            />
             <button
               onClick={handleDelete}
               disabled={loading}
@@ -461,10 +547,21 @@ export default function PaperLoader() {
   );
 
   return (
-    <ResizableLayout
-      leftPanel={leftPanel}
-      mainPanel={mainPanel}
-      rightPanel={rightPanel}
-    />
+    <>
+      <ResizableLayout
+        leftPanel={leftPanel}
+        mainPanel={mainPanel}
+        rightPanel={rightPanel}
+      />
+
+      {/* Tooltip Suggestion Modal */}
+      <TooltipSuggestionModal
+        isOpen={showSuggestionModal}
+        suggestions={suggestions}
+        totalEntities={totalEntityCount}
+        onClose={() => setShowSuggestionModal(false)}
+        onApply={handleApplySuggestions}
+      />
+    </>
   );
 }

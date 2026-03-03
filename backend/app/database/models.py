@@ -46,7 +46,13 @@ class Tooltip(Base):
 
     id = Column(String(64), primary_key=True)  # UUID or hash
     paper_id = Column(String(64), ForeignKey("papers.id", ondelete="CASCADE"), nullable=False)
-    dom_node_id = Column(String(128), nullable=False)  # The data-id attribute from HTML
+
+    # Dual mode: semantic (entity_id) vs. paragraph (dom_node_id)
+    # Semantic tooltip: entity_id is set, applies to all occurrences of that entity
+    # Paragraph comment: dom_node_id is set, applies to one specific block
+    entity_id = Column(String(128), nullable=True)  # NEW: KG entity ID (e.g., "symbol_alpha_t")
+    dom_node_id = Column(String(128), nullable=True)  # The data-id attribute from HTML
+
     user_id = Column(String(64), default="default")  # MVP: single user
     target_text = Column(String(512), nullable=True)  # What symbol/term this annotation explains
     content = Column(Text, nullable=False)
@@ -59,6 +65,7 @@ class Tooltip(Base):
 
     __table_args__ = (
         Index("idx_paper_node", "paper_id", "dom_node_id"),
+        Index("idx_paper_entity", "paper_id", "entity_id"),  # NEW: Index for semantic tooltips
         Index("idx_paper_user", "paper_id", "user_id"),
     )
 

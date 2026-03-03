@@ -66,6 +66,7 @@ class PaperDetailResponse(PaperResponse):
     equations: Optional[List[Dict[str, Any]]] = None
     citations: Optional[List[Dict[str, Any]]] = None
     paper_metadata: Optional[Dict[str, Any]] = None
+    has_knowledge_graph: bool = False
 
 
 class TooltipCreate(BaseModel):
@@ -95,6 +96,54 @@ class TooltipResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# Tooltip Suggestion Models (Phase 2)
+
+class TooltipSuggestionRequest(BaseModel):
+    """Request for tooltip suggestions based on knowledge graph"""
+    user_expertise: str  # "beginner" | "intermediate" | "expert"
+    entity_types: Optional[List[str]] = None  # Optional filter: ["symbol", "definition", "theorem"]
+
+
+class OccurrenceData(BaseModel):
+    """A single occurrence of an entity in the document"""
+    section_id: str
+    dom_node_id: str
+    char_offset: int
+    length: int
+    snippet: str
+
+
+class TooltipSuggestion(BaseModel):
+    """A suggested tooltip for an entity"""
+    entity_id: str
+    entity_label: str
+    entity_type: str
+    tooltip_content: str
+    occurrences: List[OccurrenceData]
+
+
+class TooltipSuggestionResponse(BaseModel):
+    """Response from tooltip suggestion endpoint"""
+    suggestions: List[TooltipSuggestion]
+    total_entities: int
+    suggested_count: int
+
+
+# Tooltip Application Models (Phase 3)
+
+class TooltipApplicationRequest(BaseModel):
+    """Request to apply suggested tooltips by injecting spans into HTML"""
+    suggestions: List[TooltipSuggestion]
+
+
+class TooltipApplicationResponse(BaseModel):
+    """Response from tooltip application endpoint"""
+    success: bool
+    spans_injected: int
+    tooltips_created: int
+    errors: List[str]
 
 
 # =============================================================================
@@ -287,6 +336,7 @@ async def get_paper(paper_id: str, db: Session = Depends(get_db)):
         equations=paper.equations_data,
         citations=paper.citations_data,
         paper_metadata=paper.paper_metadata,
+        has_knowledge_graph=paper.knowledge_graph is not None,
     )
 
 
@@ -428,6 +478,192 @@ async def delete_tooltip(paper_id: str, tooltip_id: str, db: Session = Depends(g
     db.commit()
 
     return {"status": "success", "tooltip_id": tooltip_id}
+
+
+@app.post("/api/papers/{paper_id}/tooltips/suggest", response_model=TooltipSuggestionResponse)
+async def suggest_tooltips_endpoint(
+    paper_id: str,
+    request: TooltipSuggestionRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Suggest tooltips based on knowledge graph and user expertise.
+
+    This endpoint:
+    1. Loads the knowledge graph from the paper
+    2. Filters entities based on user expertise level
+    3. Generates tooltip content from KG data
+    4. Returns suggestions with occurrence positions
+
+    Args:
+        paper_id: ID of the paper
+        request: Contains user_expertise ("beginner"/"intermediate"/"expert") and optional entity_types filter
+
+    Returns:
+        TooltipSuggestionResponse with:
+        - suggestions: List of suggested tooltips with occurrences
+        - total_entities: Total count in KG
+        - suggested_count: Count after filtering
+    """
+    from backend.app.agents.tooltip_suggestion import suggest_tooltips
+
+    # Load paper and verify it exists
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    # Check if knowledge graph exists
+    if not paper.knowledge_graph:
+        raise HTTPException(
+            status_code=400,
+            detail="Knowledge graph not built. Please build the knowledge graph first."
+        )
+
+    # Validate expertise level
+    valid_expertise = ["beginner", "intermediate", "expert"]
+    if request.user_expertise not in valid_expertise:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid expertise level. Must be one of: {', '.join(valid_expertise)}"
+        )
+
+    # Validate entity types filter if provided
+    if request.entity_types:
+        valid_types = ["symbol", "definition", "theorem"]
+        invalid_types = [t for t in request.entity_types if t not in valid_types]
+        if invalid_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid entity types: {', '.join(invalid_types)}. Must be one of: {', '.join(valid_types)}"
+            )
+
+    try:
+        # Call suggestion agent
+        result = suggest_tooltips(
+            knowledge_graph=paper.knowledge_graph,
+            user_expertise=request.user_expertise,
+            entity_type_filter=request.entity_types
+        )
+
+        return TooltipSuggestionResponse(**result)
+
+    except Exception as e:
+        # Log error and return helpful message
+        print(f"Error suggesting tooltips: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to suggest tooltips: {str(e)}"
+        )
+
+
+@app.post("/api/papers/{paper_id}/tooltips/apply", response_model=TooltipApplicationResponse)
+async def apply_tooltips_endpoint(
+    paper_id: str,
+    request: TooltipApplicationRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Apply suggested tooltips by injecting <span> tags into HTML and creating Tooltip records.
+
+    This endpoint:
+    1. Loads the paper and original HTML
+    2. Injects <span class="kg-entity"> tags at occurrence positions
+    3. Validates HTML integrity
+    4. Persists modified HTML back to database
+    5. Creates Tooltip records with entity_id set
+
+    Args:
+        paper_id: ID of the paper
+        request: Contains list of suggestions to apply (from /suggest endpoint)
+
+    Returns:
+        TooltipApplicationResponse with:
+        - success: Whether operation completed
+        - spans_injected: Number of successful span injections
+        - tooltips_created: Number of Tooltip records created
+        - errors: List of errors encountered
+
+    Note: This operation modifies the paper's HTML content. Consider backing up before applying.
+    """
+    from backend.app.compiler.html_injection import inject_tooltip_spans, validate_html_integrity
+
+    # Load paper
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    if not paper.html_content:
+        raise HTTPException(
+            status_code=400,
+            detail="Paper has no compiled HTML. Please compile the paper first."
+        )
+
+    # Store original HTML for rollback
+    original_html = paper.html_content
+
+    try:
+        # Convert Pydantic models to dicts for injection function
+        suggestions_dict = [s.model_dump() for s in request.suggestions]
+
+        # Inject spans
+        print(f"\nApplying {len(suggestions_dict)} tooltip suggestions...")
+        modified_html, injection_errors = inject_tooltip_spans(
+            html=original_html,
+            suggestions=suggestions_dict
+        )
+
+        # Validate HTML integrity
+        is_valid, validation_error = validate_html_integrity(original_html, modified_html)
+        if not is_valid:
+            raise ValueError(f"HTML validation failed: {validation_error}")
+
+        # Persist modified HTML
+        paper.html_content = modified_html
+
+        # Create Tooltip records for each suggestion
+        tooltips_created = 0
+        for suggestion in request.suggestions:
+            # Create semantic tooltip (entity_id is set, dom_node_id is None)
+            new_tooltip = Tooltip(
+                id=str(uuid.uuid4()),
+                paper_id=paper_id,
+                entity_id=suggestion.entity_id,  # NEW: Link to KG entity
+                dom_node_id=None,  # Semantic tooltips don't have single anchor
+                target_text=suggestion.entity_label,  # Display label
+                content=suggestion.tooltip_content,
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC)
+            )
+            db.add(new_tooltip)
+            tooltips_created += 1
+
+        # Commit all changes
+        db.commit()
+
+        # Calculate successful spans
+        total_occurrences = sum(len(s.occurrences) for s in request.suggestions)
+        spans_injected = total_occurrences - len(injection_errors)
+
+        return TooltipApplicationResponse(
+            success=True,
+            spans_injected=spans_injected,
+            tooltips_created=tooltips_created,
+            errors=injection_errors
+        )
+
+    except Exception as e:
+        # Rollback on error
+        db.rollback()
+        print(f"Error applying tooltips: {e}")
+        import traceback
+        traceback.print_exc()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to apply tooltips: {str(e)}"
+        )
 
 
 # =============================================================================

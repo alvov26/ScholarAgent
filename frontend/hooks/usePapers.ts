@@ -51,6 +51,7 @@ export interface PaperDetail extends Paper {
   equations: Equation[] | null;
   citations: Citation[] | null;
   paper_metadata: PaperMetadata | null;
+  has_knowledge_graph: boolean;
 }
 
 export function usePapers() {
