@@ -40,6 +40,23 @@ export default function TooltipSuggestionModal({
   const [editedContent, setEditedContent] = useState<Map<string, string>>(new Map());
   const [applying, setApplying] = useState(false);
 
+  // Group suggestions by type - MUST be before early return to maintain hook order
+  const groupedSuggestions = useMemo(() => {
+    const groups: Record<string, TooltipSuggestion[]> = {
+      symbol: [],
+      definition: [],
+      theorem: [],
+    };
+
+    suggestions.forEach(s => {
+      if (groups[s.entity_type]) {
+        groups[s.entity_type].push(s);
+      }
+    });
+
+    return groups;
+  }, [suggestions]);
+
   if (!isOpen) return null;
 
   const handleToggleSelect = (entityId: string) => {
@@ -86,23 +103,6 @@ export default function TooltipSuggestionModal({
   };
 
   const selectedCount = selectedIds.size;
-
-  // Group suggestions by type
-  const groupedSuggestions = useMemo(() => {
-    const groups: Record<string, TooltipSuggestion[]> = {
-      symbol: [],
-      definition: [],
-      theorem: [],
-    };
-
-    suggestions.forEach(s => {
-      if (groups[s.entity_type]) {
-        groups[s.entity_type].push(s);
-      }
-    });
-
-    return groups;
-  }, [suggestions]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">

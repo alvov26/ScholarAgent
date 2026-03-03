@@ -5,10 +5,19 @@ Filters knowledge graph entities based on user expertise and generates tooltip c
 Part of Phase 2: Semantic Tooltips implementation.
 """
 
-from typing import List, Dict, Any, Optional
+import os
+from typing import List, Dict, Any, Optional, Callable
 from pydantic import BaseModel, Field
 from langchain_anthropic import ChatAnthropic
 from langchain_core.prompts import ChatPromptTemplate
+
+# Debug mode controlled by environment variable
+DEBUG = os.getenv("TOOLTIP_AGENT_DEBUG", "false").lower() == "true"
+
+def debug_print(message: str):
+    """Print debug message if DEBUG mode is enabled"""
+    if DEBUG:
+        print(f"[Tooltip Suggestion] {message}")
 
 
 # =============================================================================
@@ -27,35 +36,25 @@ class FilterOutput(BaseModel):
 
 FILTER_SYSTEM_PROMPT = """You are an academic paper annotation assistant.
 Your job is to select which terms from a knowledge graph should have tooltips,
-based on the reader's expertise level.
+based on the reader's background and expertise.
 
-Guidelines by expertise level:
-
-BEGINNER:
-- Annotate most technical terms, mathematical symbols, and domain-specific concepts
-- Skip only universal terms everyone knows (e.g., "number", "set", "function" in basic contexts)
-- Include standard mathematical notation if it has specific meaning in this paper
-- Goal: Help reader build foundational understanding
-
-INTERMEDIATE:
-- Annotate domain-specific jargon, paper-specific notation, and novel concepts
-- Skip common terms from undergraduate education in the field
-- Include specialized methods, algorithms, or mathematical objects
-- Goal: Bridge gap between general knowledge and paper-specific contributions
-
-EXPERT:
-- Annotate only paper-specific innovations, novel notation, or redefined concepts
-- Skip standard terminology and well-known results from the literature
-- Include only terms that are unique to this paper or used in non-standard ways
-- Goal: Highlight what's new or different in this work
+Guidelines:
+- Consider the reader's stated background and knowledge
+- Annotate terms that would be unfamiliar or need clarification given their background
+- Skip terms that are clearly within their stated expertise
+- Include paper-specific notation, novel concepts, and domain-specific jargon they may not know
+- Be selective but err on the side of over-annotation rather than missing important terms
+- Consider context: common terms used in unusual ways should be annotated
+- Mathematical symbols are often worth annotating unless trivial
 
 Important:
-- Be selective but not too aggressive - better to over-annotate than miss important terms
-- Consider the context: a common term used in an unusual way should be annotated
-- Mathematical symbols are often worth annotating even for experts (unless trivial like i, j, k)
+- The user will provide a free-form description of their background
+- Interpret their expertise level and domain knowledge from this description
+- Tailor suggestions specifically to fill gaps in their knowledge
 """
 
-FILTER_USER_PROMPT = """User expertise level: {expertise_level}
+FILTER_USER_PROMPT = """Reader's background and expertise:
+{expertise_level}
 
 Knowledge graph entities from the paper:
 
@@ -68,30 +67,33 @@ DEFINITIONS:
 THEOREMS:
 {theorems_list}
 
-Based on the user's expertise level, select which entities should have tooltips.
+Based on the reader's background, select which entities should have tooltips.
+Select terms that would help this specific reader understand the paper better.
 
 Return a JSON object with:
 - selected_entity_ids: array of entity IDs to annotate
-- reasoning: brief explanation (optional)
+- reasoning: brief explanation of your selection criteria (optional)
 
 Example:
 {{
   "selected_entity_ids": ["symbol_alpha_t", "def_ELBO", "thm_3.2"],
-  "reasoning": "For intermediate users, focusing on paper-specific notation and key theoretical results"
+  "reasoning": "Selected RL-specific notation and variational inference concepts that may be unfamiliar to ML engineers without RL background"
 }}
 """
 
 
 def filter_entities_by_expertise(
     entities: List[Dict[str, Any]],
-    expertise_level: str
+    expertise_level: str,
+    progress_callback: Optional[Callable[[str], None]] = None
 ) -> List[Dict[str, Any]]:
     """
     Use LLM to filter entities based on user expertise.
 
     Args:
         entities: List of all KG nodes (symbols, definitions, theorems)
-        expertise_level: "beginner" | "intermediate" | "expert"
+        expertise_level: Free-form text describing the reader's background and expertise
+        progress_callback: Optional callback for progress updates
 
     Returns:
         Filtered list of entities that should have tooltips
@@ -99,15 +101,19 @@ def filter_entities_by_expertise(
     if not entities:
         return []
 
-    # Validate expertise level
-    valid_levels = ["beginner", "intermediate", "expert"]
-    if expertise_level not in valid_levels:
-        expertise_level = "intermediate"  # Default fallback
+    # No validation needed - expertise_level is free-form text
+
+    debug_print(f"Starting entity filtering with {len(entities)} total entities")
+    debug_print(f"User expertise: {expertise_level[:100]}...")
+    if progress_callback:
+        progress_callback("Analyzing knowledge graph entities...")
 
     # Group entities by type for better prompt formatting
     symbols = [e for e in entities if e.get('type') == 'symbol']
     definitions = [e for e in entities if e.get('type') == 'definition']
     theorems = [e for e in entities if e.get('type') == 'theorem']
+
+    debug_print(f"Entity breakdown: {len(symbols)} symbols, {len(definitions)} definitions, {len(theorems)} theorems")
 
     # Format entity lists for prompt
     def format_symbols(symbols_list):
@@ -132,6 +138,8 @@ def filter_entities_by_expertise(
     definitions_text = format_definitions(definitions)
     theorems_text = format_theorems(theorems)
 
+    debug_print("Formatted entity lists for LLM prompt")
+
     # Create prompt
     prompt = ChatPromptTemplate.from_messages([
         ("system", FILTER_SYSTEM_PROMPT),
@@ -139,6 +147,10 @@ def filter_entities_by_expertise(
     ])
 
     # Call LLM with structured output
+    debug_print("Calling LLM to filter entities based on expertise...")
+    if progress_callback:
+        progress_callback("Filtering entities with AI based on your expertise...")
+
     llm = ChatAnthropic(model="claude-sonnet-4-5-20250929")
     structured_llm = llm.with_structured_output(FilterOutput)
 
@@ -156,14 +168,19 @@ def filter_entities_by_expertise(
         selected_ids = set(response.selected_entity_ids)
         filtered = [e for e in entities if e.get('id') in selected_ids]
 
-        print(f"  Filtering: {len(entities)} entities → {len(filtered)} selected (expertise: {expertise_level})")
+        debug_print(f"LLM filtering complete: {len(entities)} → {len(filtered)} entities selected")
         if response.reasoning:
-            print(f"  Reasoning: {response.reasoning}")
+            debug_print(f"LLM reasoning: {response.reasoning}")
+
+        if progress_callback:
+            progress_callback(f"Selected {len(filtered)} entities for annotation")
 
         return filtered
 
     except Exception as e:
-        print(f"  Warning: Entity filtering failed ({e}), returning all entities")
+        debug_print(f"Warning: Entity filtering failed ({e}), returning all entities as fallback")
+        if progress_callback:
+            progress_callback("Entity filtering failed, using all entities")
         # Fallback: return all entities if filtering fails
         return entities
 
@@ -239,15 +256,17 @@ def generate_tooltip_content(entity: Dict[str, Any]) -> str:
 def suggest_tooltips(
     knowledge_graph: Dict[str, Any],
     user_expertise: str,
-    entity_type_filter: Optional[List[str]] = None
+    entity_type_filter: Optional[List[str]] = None,
+    progress_callback: Optional[Callable[[str], None]] = None
 ) -> Dict[str, Any]:
     """
     Main function to suggest tooltips based on knowledge graph.
 
     Args:
         knowledge_graph: The KG dict from paper.knowledge_graph
-        user_expertise: "beginner" | "intermediate" | "expert"
+        user_expertise: Free-form text describing the reader's background and expertise
         entity_type_filter: Optional list of types to include (e.g., ["symbol", "definition"])
+        progress_callback: Optional callback for progress updates
 
     Returns:
         Dict with:
@@ -255,7 +274,13 @@ def suggest_tooltips(
         - total_entities: Total count before filtering
         - suggested_count: Count after filtering
     """
+    debug_print("=" * 60)
+    debug_print("Starting tooltip suggestion pipeline")
+    if progress_callback:
+        progress_callback("Loading knowledge graph...")
+
     if not knowledge_graph or 'nodes' not in knowledge_graph:
+        debug_print("No knowledge graph available")
         return {
             "suggestions": [],
             "total_entities": 0,
@@ -264,6 +289,7 @@ def suggest_tooltips(
 
     all_entities = knowledge_graph['nodes']
     total_count = len(all_entities)
+    debug_print(f"Knowledge graph loaded: {total_count} total entities")
 
     # Apply type filter if specified
     if entity_type_filter:
@@ -271,15 +297,22 @@ def suggest_tooltips(
             e for e in all_entities
             if e.get('type') in entity_type_filter
         ]
+        debug_print(f"Type filter applied: {len(entities_to_consider)} entities match types {entity_type_filter}")
     else:
         entities_to_consider = all_entities
 
     # Filter by expertise
-    filtered_entities = filter_entities_by_expertise(entities_to_consider, user_expertise)
+    if progress_callback:
+        progress_callback("Filtering entities based on your expertise...")
+    filtered_entities = filter_entities_by_expertise(entities_to_consider, user_expertise, progress_callback)
 
     # Generate suggestions
+    debug_print(f"Generating tooltip content for {len(filtered_entities)} entities...")
+    if progress_callback:
+        progress_callback(f"Generating content for {len(filtered_entities)} tooltips...")
+
     suggestions = []
-    for entity in filtered_entities:
+    for idx, entity in enumerate(filtered_entities, 1):
         # Generate tooltip content
         tooltip_content = generate_tooltip_content(entity)
 
@@ -295,6 +328,15 @@ def suggest_tooltips(
         }
 
         suggestions.append(suggestion)
+
+        if idx % 10 == 0:
+            debug_print(f"  Generated {idx}/{len(filtered_entities)} tooltips...")
+
+    debug_print(f"Tooltip generation complete: {len(suggestions)} suggestions created")
+    debug_print("=" * 60)
+
+    if progress_callback:
+        progress_callback(f"Complete! Generated {len(suggestions)} tooltip suggestions")
 
     return {
         "suggestions": suggestions,

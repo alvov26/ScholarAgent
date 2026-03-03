@@ -102,7 +102,7 @@ class TooltipResponse(BaseModel):
 
 class TooltipSuggestionRequest(BaseModel):
     """Request for tooltip suggestions based on knowledge graph"""
-    user_expertise: str  # "beginner" | "intermediate" | "expert"
+    user_expertise: str  # Free-form text describing reader's background/expertise
     entity_types: Optional[List[str]] = None  # Optional filter: ["symbol", "definition", "theorem"]
 
 
@@ -497,7 +497,7 @@ async def suggest_tooltips_endpoint(
 
     Args:
         paper_id: ID of the paper
-        request: Contains user_expertise ("beginner"/"intermediate"/"expert") and optional entity_types filter
+        request: Contains user_expertise (free-form text) and optional entity_types filter
 
     Returns:
         TooltipSuggestionResponse with:
@@ -519,13 +519,7 @@ async def suggest_tooltips_endpoint(
             detail="Knowledge graph not built. Please build the knowledge graph first."
         )
 
-    # Validate expertise level
-    valid_expertise = ["beginner", "intermediate", "expert"]
-    if request.user_expertise not in valid_expertise:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid expertise level. Must be one of: {', '.join(valid_expertise)}"
-        )
+    # user_expertise is free-form text passed to LLM - no validation needed
 
     # Validate entity types filter if provided
     if request.entity_types:

@@ -221,7 +221,8 @@ export default function PaperLoader() {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to suggest tooltips: ${response.statusText}`);
+        const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+        throw new Error(`Failed to suggest tooltips: ${errorData.detail || response.statusText}`);
       }
 
       const data = await response.json();
