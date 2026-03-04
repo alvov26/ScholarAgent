@@ -466,7 +466,12 @@ async def update_tooltip(
 
 @app.delete("/api/papers/{paper_id}/tooltips/{tooltip_id}")
 async def delete_tooltip(paper_id: str, tooltip_id: str, db: Session = Depends(get_db)):
-    """Delete a tooltip."""
+    """
+    Delete a tooltip and remove its spans from HTML.
+
+    For semantic tooltips (with entity_id), this removes all <span> tags
+    with matching data-entity-id from the compiled HTML.
+    """
     existing = db.query(Tooltip).filter(
         Tooltip.id == tooltip_id,
         Tooltip.paper_id == paper_id
@@ -474,6 +479,16 @@ async def delete_tooltip(paper_id: str, tooltip_id: str, db: Session = Depends(g
 
     if not existing:
         raise HTTPException(status_code=404, detail="Tooltip not found")
+
+    # If this is a semantic tooltip with entity_id, remove its spans from HTML
+    if existing.entity_id:
+        from backend.app.compiler.html_injection import remove_tooltip_spans
+
+        paper = db.query(Paper).filter(Paper.id == paper_id).first()
+        if paper and paper.html_content:
+            print(f"[Delete Tooltip] Removing spans for entity {existing.entity_id} from paper {paper_id}")
+            modified_html = remove_tooltip_spans(paper.html_content, existing.entity_id)
+            paper.html_content = modified_html
 
     db.delete(existing)
     db.commit()
@@ -599,7 +614,7 @@ async def apply_tooltips_endpoint(
     original_html = paper.html_content
 
     try:
-        from backend.app.agents.knowledge_graph import extract_occurrences_for_entity
+        from backend.app.compiler.html_injection import extract_occurrences_from_html
 
         # Convert Pydantic models to dicts for injection function
         suggestions_dict = [s.model_dump() for s in request.suggestions]
@@ -607,16 +622,16 @@ async def apply_tooltips_endpoint(
         print(f"\n[Tooltip Apply] Received request to apply {len(suggestions_dict)} tooltip suggestions for paper {paper_id}")
 
         # Lazily find occurrences for each selected entity NOW (not during KG build)
-        # This is more efficient - we only search for entities the user actually selected
-        sections = paper.sections_data or []
-        print(f"[Tooltip Apply] Finding occurrences across {len(sections)} sections...")
+        # IMPORTANT: We search in the compiled HTML that we're about to inject into,
+        # not in sections_data, to ensure offsets match exactly
+        print(f"[Tooltip Apply] Finding occurrences in compiled HTML...")
 
         for suggestion in suggestions_dict:
             entity_label = suggestion.get('entity_label', '')
-            # Find all occurrences of this entity in the document
-            occurrences = extract_occurrences_for_entity(
+            # Find all occurrences of this entity in the compiled HTML
+            occurrences = extract_occurrences_from_html(
                 term=entity_label,
-                sections=sections
+                html=original_html
             )
             suggestion['occurrences'] = occurrences
             print(f"[Tooltip Apply]   Entity '{entity_label}': found {len(occurrences)} occurrences")

@@ -23,6 +23,72 @@ def debug_print(message: str):
 
 
 # =============================================================================
+# Occurrence Detection
+# =============================================================================
+
+def extract_occurrences_from_html(
+    term: str,
+    html: str,
+    max_snippet_chars: int = 40
+) -> List[Dict[str, Any]]:
+    """
+    Find all occurrences of a term in the compiled HTML.
+
+    This function searches the SAME HTML that will be used for injection,
+    ensuring that character offsets match exactly.
+
+    Args:
+        term: The term to find (plain text)
+        html: The compiled HTML to search in
+        max_snippet_chars: Characters to include in context snippet
+
+    Returns:
+        List of occurrence dicts with dom_node_id, char_offset, length, snippet
+    """
+    soup = BeautifulSoup(html, 'html.parser')
+    occurrences = []
+
+    # Find all elements with data-id (these are the targetable DOM nodes)
+    elements_with_id = soup.find_all(attrs={'data-id': True})
+
+    for element in elements_with_id:
+        dom_node_id = element.get('data-id')
+
+        # Get plain text using the SAME method as wrap_text_at_offset
+        element_text = get_text_content(element)
+
+        if not element_text:
+            continue
+
+        # Find all occurrences of term (case-insensitive)
+        pattern = re.escape(term)
+        matches = re.finditer(pattern, element_text, re.IGNORECASE)
+
+        for match in matches:
+            offset = match.start()
+            length = len(term)
+
+            # Extract snippet
+            snippet_start = max(0, offset - max_snippet_chars)
+            snippet_end = min(len(element_text), offset + length + max_snippet_chars)
+            snippet = element_text[snippet_start:snippet_end]
+
+            if snippet_start > 0:
+                snippet = "..." + snippet
+            if snippet_end < len(element_text):
+                snippet = snippet + "..."
+
+            occurrences.append({
+                "dom_node_id": dom_node_id,
+                "char_offset": offset,
+                "length": length,
+                "snippet": snippet
+            })
+
+    return occurrences
+
+
+# =============================================================================
 # Text Node Traversal
 # =============================================================================
 
@@ -118,27 +184,68 @@ def wrap_text_at_offset(
     current_offset = 0
     first_node = True
 
-    for text_node in text_nodes:
-        # Add separator space between nodes (matching get_text_content's separator=' ')
-        if not first_node:
-            current_offset += 1  # Account for the separator space
-        first_node = False
+    # Build the text exactly as get_text_content does: join with separator, then strip final result
+    # We need to track which parts of the original correspond to which text nodes
+    all_node_texts = []
+    for tn in text_nodes:
+        all_node_texts.append(tn.string if tn.string else "")
 
-        node_text = text_node.string
+    # Join with separator (this is what get_text does internally)
+    joined_text = ' '.join(all_node_texts)
+    # Strip the final result (this is what strip=True does)
+    stripped_text = joined_text.strip()
+
+    debug_print(f"    Reconstructed text: '{stripped_text[:100]}...'")
+    debug_print(f"    Length: {len(stripped_text)} (joined: {len(joined_text)})")
+
+    # Now we need to find where char_offset falls in the original joined (but not stripped) text
+    # The offset from occurrence detection is in stripped coordinates
+    # We need to adjust it back to joined coordinates
+    leading_strip_offset = len(joined_text) - len(joined_text.lstrip())
+    char_offset_in_joined = char_offset + leading_strip_offset
+
+    debug_print(f"    Adjusting offset: {char_offset} (stripped) -> {char_offset_in_joined} (joined), leading_strip={leading_strip_offset}")
+
+    # Now walk nodes and find which one contains char_offset_in_joined
+    current_offset = 0
+    for idx, text_node in enumerate(text_nodes):
+        node_text = text_node.string if text_node.string else ""
+
+        # Add separator space between nodes (but not before first)
+        separator_offset = None
+        if idx > 0:
+            separator_offset = current_offset  # The separator occupies this position
+            current_offset += 1  # Move past the separator
+
         node_len = len(node_text)
         node_end = current_offset + node_len
 
-        debug_print(f"      Text node: offset {current_offset}-{node_end}, text='{node_text[:50]}...' (len={node_len})")
+        debug_print(f"      Text node {idx}: offset {current_offset}-{node_end}, text={repr(node_text[:50])} (len={node_len}){' [separator at ' + str(separator_offset) + ']' if separator_offset is not None else ''}")
+
+        # Check if target starts at the separator (edge case)
+        if separator_offset is not None and char_offset_in_joined == separator_offset:
+            # The target starts at the separator space - this means it actually starts at the beginning of this node
+            # (the occurrence detection included the separator as part of the match)
+            debug_print(f"      Target starts at separator position - treating as start of this node")
+            local_offset = 0
+
+            # Check if entire target fits within this text node (excluding the separator)
+            if char_offset_in_joined + length <= node_end + 1:  # +1 because we're counting the separator
+                # Adjust length to exclude the separator
+                adjusted_length = length - 1
+                if adjusted_length > 0 and adjusted_length <= node_len:
+                    debug_print(f"      Wrapping with adjusted_length={adjusted_length} (excluding separator)")
+                    return _wrap_within_single_node(text_node, local_offset, adjusted_length, entity_id, entity_type)
 
         # Check if target range starts within this text node
-        if current_offset <= char_offset < node_end:
+        if current_offset <= char_offset_in_joined < node_end:
             # Calculate position within this text node
-            local_offset = char_offset - current_offset
+            local_offset = char_offset_in_joined - current_offset
 
             debug_print(f"      Found target starting at local_offset={local_offset}")
 
             # Check if entire target fits within this text node
-            if char_offset + length <= node_end:
+            if char_offset_in_joined + length <= node_end:
                 # Simple case: entire span within one text node
                 return _wrap_within_single_node(text_node, local_offset, length, entity_id, entity_type)
             else:
@@ -459,6 +566,34 @@ def test_injection():
     print("Test 3 - Nested tags:")
     print(modified)
     print(f"Errors: {errors}\n")
+
+
+def remove_tooltip_spans(html: str, entity_id: str) -> str:
+    """
+    Remove all <span class="kg-entity"> tags for a specific entity.
+
+    This unwraps the spans while preserving the text content, effectively
+    reverting the HTML to its pre-injection state for this entity.
+
+    Args:
+        html: The HTML containing tooltip spans
+        entity_id: The entity ID to remove (matches data-entity-id attribute)
+
+    Returns:
+        Modified HTML with spans removed
+    """
+    soup = BeautifulSoup(html, 'html.parser')
+
+    # Find all kg-entity spans with matching entity_id
+    spans = soup.find_all('span', class_='kg-entity', attrs={'data-entity-id': entity_id})
+
+    debug_print(f"Removing {len(spans)} tooltip spans for entity {entity_id}")
+
+    for span in spans:
+        # Replace span with its text content
+        span.unwrap()
+
+    return str(soup)
 
 
 if __name__ == "__main__":

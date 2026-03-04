@@ -239,6 +239,21 @@ export default function PaperLoader() {
     }
   };
 
+  // Handle delete tooltip with paper reload
+  const handleDeleteTooltip = async (tooltipId: string): Promise<boolean> => {
+    const success = await deleteTooltip(tooltipId);
+
+    if (success && selectedPaperId) {
+      // Reload paper to show updated HTML (with spans removed)
+      const paper = await fetchPaper(selectedPaperId);
+      if (paper) {
+        setCurrentPaper(paper);
+      }
+    }
+
+    return success;
+  };
+
   // Handle apply suggestions
   const handleApplySuggestions = async (selectedSuggestions: TooltipSuggestion[]) => {
     if (!selectedPaperId) return;
@@ -511,7 +526,7 @@ export default function PaperLoader() {
             tooltips={tooltipMap}
             onTooltipCreate={createTooltip}
             onTooltipUpdate={updateTooltip}
-            onTooltipDelete={deleteTooltip}
+            onTooltipDelete={handleDeleteTooltip}
           />
         </div>
       ) : currentPaper && !currentPaper.has_html ? (
@@ -548,7 +563,7 @@ export default function PaperLoader() {
       tooltips={allTooltips}
       toc={toc}
       onEdit={handleTooltipEdit}
-      onDelete={deleteTooltip}
+      onDelete={handleDeleteTooltip}
       onPin={handleTooltipPin}
       onNavigate={handleNavigate}
     />
