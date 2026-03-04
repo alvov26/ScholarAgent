@@ -51,8 +51,19 @@ def extract_occurrences_from_html(
     # Find all elements with data-id (these are the targetable DOM nodes)
     elements_with_id = soup.find_all(attrs={'data-id': True})
 
+    # Build a set of all data-ids for quick lookup
+    all_data_ids = {el.get('data-id') for el in elements_with_id}
+
     for element in elements_with_id:
         dom_node_id = element.get('data-id')
+
+        # Skip elements that contain children with data-id (to avoid duplicate/nested matches)
+        # We only want to search in "leaf" elements (relative to data-id hierarchy)
+        child_elements_with_id = element.find_all(attrs={'data-id': True})
+        # find_all includes the element itself if it matches, so check if there are OTHER elements
+        has_nested_data_id = any(child.get('data-id') != dom_node_id for child in child_elements_with_id)
+        if has_nested_data_id:
+            continue
 
         # Get plain text using the SAME method as wrap_text_at_offset
         element_text = get_text_content(element)
@@ -446,8 +457,9 @@ def inject_tooltip_spans(
             errors.append(f"Stopped after {max_errors} errors")
             break
 
-    # Convert soup back to string
-    modified_html = str(soup)
+    # Convert soup back to string using explicit formatter to preserve structure
+    # Using 'html' formatter ensures proper HTML output
+    modified_html = soup.decode(formatter='html')
 
     # Log summary
     total_occurrences = sum(len(s.get('occurrences', [])) for s in suggestions)
