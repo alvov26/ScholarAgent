@@ -113,12 +113,13 @@ def find_text_nodes(node):
     """
     Generator that yields all text nodes within a node in document order.
 
-    Skips comment nodes and navigational strings that are pure whitespace.
+    Skips comment nodes only. Includes all text nodes, even whitespace-only ones,
+    to maintain correct character offsets.
     """
     for child in node.descendants:
         if isinstance(child, NavigableString) and not isinstance(child, Comment):
-            # Only yield if it contains non-whitespace
-            if child.string and child.string.strip():
+            # Include all text nodes (even whitespace-only) to match get_text() behavior
+            if child.string:
                 yield child
 
 
@@ -171,94 +172,112 @@ def wrap_text_at_offset(
 
     debug_print(f"    Looking for '{target_text}' at offset {char_offset}")
 
-    # Find all text nodes
-    text_nodes = list(find_text_nodes(node))
-    if not text_nodes:
-        debug_print(f"    No text nodes found in node")
+    # Use stripped_strings generator which is what get_text(strip=True) uses internally
+    # This gives us individual stripped strings in document order
+    stripped_strings_list = list(node.stripped_strings)
+
+    if not stripped_strings_list:
+        debug_print(f"    No stripped strings found in node")
         return False
 
-    debug_print(f"    Found {len(text_nodes)} text nodes")
+    debug_print(f"    Found {len(stripped_strings_list)} stripped strings")
 
-    # Track cumulative offset as we walk text nodes
-    # IMPORTANT: We need to account for separators between nodes (like get_text_content does)
-    current_offset = 0
-    first_node = True
+    # Build position map: for each character in the final text, track which stripped_string it came from
+    # and the offset within that string
+    position_map = []  # List of (string_index, offset_in_string) for each character
 
-    # Build the text exactly as get_text_content does: join with separator, then strip final result
-    # We need to track which parts of the original correspond to which text nodes
-    all_node_texts = []
-    for tn in text_nodes:
-        all_node_texts.append(tn.string if tn.string else "")
+    for str_idx, s in enumerate(stripped_strings_list):
+        # Add separator space before this string (if not first)
+        if str_idx > 0:
+            position_map.append((-1, -1))  # Sentinel for separator space
 
-    # Join with separator (this is what get_text does internally)
-    joined_text = ' '.join(all_node_texts)
-    # Strip the final result (this is what strip=True does)
-    stripped_text = joined_text.strip()
+        # Add each character from this string
+        for char_idx, char in enumerate(s):
+            position_map.append((str_idx, char_idx))
 
-    debug_print(f"    Reconstructed text: '{stripped_text[:100]}...'")
-    debug_print(f"    Length: {len(stripped_text)} (joined: {len(joined_text)})")
+    # Reconstruct text to verify
+    reconstructed_chars = []
+    for str_idx, offset in position_map:
+        if str_idx == -1:  # Separator
+            reconstructed_chars.append(' ')
+        else:
+            reconstructed_chars.append(stripped_strings_list[str_idx][offset])
 
-    # Now we need to find where char_offset falls in the original joined (but not stripped) text
-    # The offset from occurrence detection is in stripped coordinates
-    # We need to adjust it back to joined coordinates
-    leading_strip_offset = len(joined_text) - len(joined_text.lstrip())
-    char_offset_in_joined = char_offset + leading_strip_offset
+    reconstructed = ''.join(reconstructed_chars).strip()
+    expected = get_text_content(node)
 
-    debug_print(f"    Adjusting offset: {char_offset} (stripped) -> {char_offset_in_joined} (joined), leading_strip={leading_strip_offset}")
+    debug_print(f"    Reconstructed text: '{reconstructed[:100]}...' (len={len(reconstructed)})")
 
-    # Now walk nodes and find which one contains char_offset_in_joined
-    current_offset = 0
-    for idx, text_node in enumerate(text_nodes):
-        node_text = text_node.string if text_node.string else ""
+    if reconstructed != expected:
+        debug_print(f"    WARNING: Reconstruction mismatch!")
+        debug_print(f"    Expected len: {len(expected)}, Got len: {len(reconstructed)}")
+        if len(expected) > 0 and len(reconstructed) > 0:
+            first_diff = next((i for i in range(min(len(expected), len(reconstructed))) if expected[i] != reconstructed[i]), -1)
+            if first_diff >= 0:
+                debug_print(f"    First diff at {first_diff}: expected {repr(expected[max(0,first_diff-10):first_diff+10])}, got {repr(reconstructed[max(0,first_diff-10):first_diff+10])}")
 
-        # Add separator space between nodes (but not before first)
-        separator_offset = None
-        if idx > 0:
-            separator_offset = current_offset  # The separator occupies this position
-            current_offset += 1  # Move past the separator
+    # Now find the stripped_string index and offset at char_offset
+    if char_offset < 0 or char_offset >= len(position_map):
+        debug_print(f"    Offset {char_offset} out of range (text length: {len(position_map)})")
+        return False
 
-        node_len = len(node_text)
-        node_end = current_offset + node_len
+    str_idx, local_offset = position_map[char_offset]
 
-        debug_print(f"      Text node {idx}: offset {current_offset}-{node_end}, text={repr(node_text[:50])} (len={node_len}){' [separator at ' + str(separator_offset) + ']' if separator_offset is not None else ''}")
+    # Check if we landed on a separator
+    if str_idx == -1:
+        debug_print(f"    Offset {char_offset} falls on separator space - cannot wrap")
+        return False
 
-        # Check if target starts at the separator (edge case)
-        if separator_offset is not None and char_offset_in_joined == separator_offset:
-            # The target starts at the separator space - this means it actually starts at the beginning of this node
-            # (the occurrence detection included the separator as part of the match)
-            debug_print(f"      Target starts at separator position - treating as start of this node")
-            local_offset = 0
+    # Check if entire target fits within the same stripped_string
+    end_offset = char_offset + length - 1
+    if end_offset >= len(position_map):
+        debug_print(f"    Target extends beyond text bounds (end_offset={end_offset}, text_len={len(position_map)})")
+        return False
 
-            # Check if entire target fits within this text node (excluding the separator)
-            if char_offset_in_joined + length <= node_end + 1:  # +1 because we're counting the separator
-                # Adjust length to exclude the separator
-                adjusted_length = length - 1
-                if adjusted_length > 0 and adjusted_length <= node_len:
-                    debug_print(f"      Wrapping with adjusted_length={adjusted_length} (excluding separator)")
-                    return _wrap_within_single_node(text_node, local_offset, adjusted_length, entity_id, entity_type)
+    end_str_idx, end_local = position_map[end_offset]
 
-        # Check if target range starts within this text node
-        if current_offset <= char_offset_in_joined < node_end:
-            # Calculate position within this text node
-            local_offset = char_offset_in_joined - current_offset
+    if str_idx != end_str_idx:
+        debug_print(f"    Target spans multiple stripped_strings ({str_idx} to {end_str_idx}) - skipping for MVP")
+        return False
 
-            debug_print(f"      Found target starting at local_offset={local_offset}")
+    # Now we need to find the actual NavigableString that contains this stripped_string
+    # stripped_strings are already stripped, so we need to find which raw text node they came from
+    target_string = stripped_strings_list[str_idx]
 
-            # Check if entire target fits within this text node
-            if char_offset_in_joined + length <= node_end:
-                # Simple case: entire span within one text node
-                return _wrap_within_single_node(text_node, local_offset, length, entity_id, entity_type)
-            else:
-                # Complex case: span crosses multiple text nodes
-                # For MVP, we'll skip these to avoid complexity
-                print(f"  Warning: Span crosses text nodes (offset {char_offset}, length {length}) - skipping")
-                return False
+    # Find the text node containing this exact stripped string
+    # This is tricky because stripped_strings removes whitespace
+    # We need to search through all text nodes to find one whose stripped version matches
+    all_text_nodes = list(find_text_nodes(node))
+    target_text_node = None
 
-        current_offset = node_end
+    for text_node in all_text_nodes:
+        node_str = text_node.string if text_node.string else ""
+        if node_str.strip() == target_string:
+            target_text_node = text_node
+            break
 
-    # Offset not found
-    debug_print(f"    Offset {char_offset} not found in any text node (final current_offset={current_offset})")
-    return False
+    if not target_text_node:
+        debug_print(f"    Could not find text node for stripped_string: {repr(target_string[:50])}")
+        return False
+
+    # Calculate the local offset within the raw text node
+    # The stripped_string has had leading whitespace removed
+    raw_node_str = target_text_node.string if target_text_node.string else ""
+    leading_ws = len(raw_node_str) - len(raw_node_str.lstrip())
+    raw_local_offset = local_offset + leading_ws
+
+    # Show what we're wrapping
+    target_text = raw_node_str[raw_local_offset:raw_local_offset + length]
+    preview_start = max(0, raw_local_offset - 10)
+    preview_end = min(len(raw_node_str), raw_local_offset + length + 10)
+    preview = raw_node_str[preview_start:preview_end]
+
+    debug_print(f"    Stripped string {str_idx}: {repr(target_string[:50])}")
+    debug_print(f"    Raw text node: {repr(raw_node_str[:70])}")
+    debug_print(f"    Will wrap at raw_offset={raw_local_offset}: {repr(target_text)} in context: {repr(preview)}")
+
+    # Wrap the text
+    return _wrap_within_single_node(target_text_node, raw_local_offset, length, entity_id, entity_type)
 
 
 def _wrap_within_single_node(
