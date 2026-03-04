@@ -42,7 +42,7 @@ const edgeColors: Record<string, string> = {
 
 interface KnowledgeGraphViewProps {
   paperId: string;
-  onNavigate: (domNodeId: string) => void;
+  onNavigate?: (domNodeId: string) => void;
 }
 
 interface ApiNode {
@@ -202,6 +202,12 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
   // React Flow instance for programmatic control
   const reactFlowInstance = useReactFlow();
 
+  // Store onNavigate in a ref to avoid re-fetching when it changes
+  const onNavigateRef = useRef(onNavigate);
+  useEffect(() => {
+    onNavigateRef.current = onNavigate;
+  }, [onNavigate]);
+
   // Fetch graph data
   const fetchGraphData = useCallback(() => {
     setLoading(true);
@@ -232,7 +238,7 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
             statement: n.statement,
             latex: n.latex,
             domNodeId: n.dom_node_id,
-            onNavigate: () => onNavigate(n.dom_node_id),
+            onNavigate: () => onNavigateRef.current?.(n.dom_node_id),
           },
           position: { x: 0, y: 0 }, // Will be set by autoLayout
         }));
@@ -268,7 +274,7 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
         setError(err.message);
         setLoading(false);
       });
-  }, [paperId, setNodes, setEdges, onNavigate]);
+  }, [paperId]);
 
   // Initial fetch
   useEffect(() => {
@@ -433,7 +439,7 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
         targetId: edge.target,
         sourceLabel: sourceNode.data.label,
         targetLabel: targetNode.data.label,
-        type: edge.label as string || edge.type,
+        type: (edge.label as string) || edge.type || 'unknown',
         evidence: edge.data?.evidence,
       });
 

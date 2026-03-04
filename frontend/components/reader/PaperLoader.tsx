@@ -9,6 +9,7 @@ import NavigationPanel from "./NavigationPanel";
 import TooltipPanel from "./TooltipPanel";
 import TooltipSuggestionModal, { TooltipSuggestion } from "./TooltipSuggestionModal";
 import SuggestTooltipsButton from "./SuggestTooltipsButton";
+import SearchBar from "./SearchBar";
 import { parseTOC, TOCNode } from "@/utils/parseTOC";
 import { Loader2, Upload, ExternalLink, Trash2, RefreshCw, FileText, AlertCircle, Network } from "lucide-react";
 
@@ -68,6 +69,9 @@ export default function PaperLoader() {
   const [totalEntityCount, setTotalEntityCount] = useState(0);
   const [suggesting, setSuggesting] = useState(false);
 
+  // Search state
+  const [showSearch, setShowSearch] = useState(false);
+
   const {
     tooltipMap,
     loading: tooltipsLoading,
@@ -102,6 +106,19 @@ export default function PaperLoader() {
       window.removeEventListener('kg-build-complete', handleBuildComplete as EventListener);
       window.removeEventListener('kg-build-error', handleBuildError as EventListener);
     };
+  }, []);
+
+  // Handle Ctrl+F to open search bar
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        setShowSearch(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   // Load selected paper
@@ -483,7 +500,7 @@ export default function PaperLoader() {
               </span>
             )}
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
             <button
               onClick={handleRecompile}
               disabled={loading}
@@ -585,6 +602,9 @@ export default function PaperLoader() {
         onClose={() => setShowSuggestionModal(false)}
         onApply={handleApplySuggestions}
       />
+
+      {/* Search Bar */}
+      <SearchBar isOpen={showSearch} onClose={() => setShowSearch(false)} />
     </>
   );
 }

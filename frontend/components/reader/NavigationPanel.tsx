@@ -67,7 +67,7 @@ export default function NavigationPanel({
         <div className={`h-full ${mode === 'graph' ? '' : 'hidden'}`}>
           <KnowledgeGraphView
             paperId={paperId}
-            onNavigate={(domNodeId) => onNavigate?.(domNodeId)}
+            onNavigate={onNavigate}
           />
         </div>
       </div>

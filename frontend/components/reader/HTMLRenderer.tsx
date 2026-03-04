@@ -30,14 +30,13 @@ export function HTMLRenderer({
   onTooltipUpdate,
   onTooltipDelete
 }: HTMLRendererProps) {
-
   const options: HTMLReactParserOptions = {
     replace: (domNode) => {
       if (!(domNode instanceof Element)) {
         return;
       }
 
-      // Handle <math> elements - render with MathJax
+      // Handle <math> elements - render with MathJax (no search highlighting in math)
       if (domNode.name === 'math') {
         return (
           <MathJaxNode
@@ -68,7 +67,7 @@ export function HTMLRenderer({
         );
       }
 
-      // Let other elements render normally
+      // Let other elements render normally (their children will still be processed for highlighting)
       return;
     }
   };
