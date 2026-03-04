@@ -505,41 +505,54 @@ def extract_occurrences_for_entity(
     Returns:
         List of occurrence dicts with section_id, dom_node_id, char_offset, length, snippet
     """
+    from bs4 import BeautifulSoup
+
     occurrences = []
 
     for section in sections:
         section_id = section.get("id", "unknown")
-        dom_node_id = section.get("dom_node_id", section_id)
         content_html = section.get("content_html", "")
 
-        # Strip HTML to get plain text
-        content_text = _strip_html_tags(content_html)
-
-        if not content_text:
+        if not content_html:
             continue
 
-        # Find all occurrences in this section
-        offsets = find_all_occurrences_plaintext(content_text, term, case_sensitive=False)
+        # Parse the section HTML to find individual elements with data-id
+        soup = BeautifulSoup(content_html, 'html.parser')
 
-        for offset in offsets:
-            # Extract snippet (context around the match)
-            snippet_start = max(0, offset - max_snippet_chars)
-            snippet_end = min(len(content_text), offset + len(term) + max_snippet_chars)
-            snippet = content_text[snippet_start:snippet_end]
+        # Find all elements with data-id (these are the actual DOM nodes we can target)
+        elements_with_id = soup.find_all(attrs={'data-id': True})
 
-            # Add ellipsis if truncated
-            if snippet_start > 0:
-                snippet = "..." + snippet
-            if snippet_end < len(content_text):
-                snippet = snippet + "..."
+        for element in elements_with_id:
+            dom_node_id = element.get('data-id')
 
-            occurrences.append({
-                "section_id": section_id,
-                "dom_node_id": dom_node_id,
-                "char_offset": offset,
-                "length": len(term),
-                "snippet": snippet
-            })
+            # Get plain text of this specific element
+            element_text = element.get_text(separator=' ', strip=True)
+
+            if not element_text:
+                continue
+
+            # Find all occurrences in this element
+            offsets = find_all_occurrences_plaintext(element_text, term, case_sensitive=False)
+
+            for offset in offsets:
+                # Extract snippet (context around the match)
+                snippet_start = max(0, offset - max_snippet_chars)
+                snippet_end = min(len(element_text), offset + len(term) + max_snippet_chars)
+                snippet = element_text[snippet_start:snippet_end]
+
+                # Add ellipsis if truncated
+                if snippet_start > 0:
+                    snippet = "..." + snippet
+                if snippet_end < len(element_text):
+                    snippet = snippet + "..."
+
+                occurrences.append({
+                    "section_id": section_id,
+                    "dom_node_id": dom_node_id,
+                    "char_offset": offset,
+                    "length": len(term),
+                    "snippet": snippet
+                })
 
     return occurrences
 
@@ -677,13 +690,6 @@ def extract_symbols(state: GraphState) -> GraphState:
             print(f"✓ ({count} symbols)")
 
             for symbol in response.symbols:
-                # Track occurrences across all sections for this symbol
-                # Use the plain text representation for searching
-                occurrences_data = extract_occurrences_for_entity(
-                    term=symbol.symbol,  # Use the plain text form
-                    sections=state["sections"]
-                )
-
                 symbols.append({
                     "symbol": symbol.symbol,
                     "latex": symbol.latex,
@@ -691,7 +697,7 @@ def extract_symbols(state: GraphState) -> GraphState:
                     "is_definition": symbol.is_definition,
                     "section_id": section_id,
                     "dom_node_id": section_id,
-                    "occurrences": occurrences_data,  # NEW: Add occurrence tracking
+                    # Note: occurrences are found lazily at tooltip application time
                 })
 
             _report_progress(state, "symbols", idx, len(sections_to_process))
@@ -776,12 +782,6 @@ def extract_definitions(state: GraphState) -> GraphState:
             print(f"✓ ({count} definitions)")
 
             for defn in response.definitions:
-                # Track occurrences across all sections for this definition term
-                occurrences_data = extract_occurrences_for_entity(
-                    term=defn.term,
-                    sections=state["sections"]
-                )
-
                 definitions.append({
                     "term": defn.term,
                     "definition_text": defn.definition_text,
@@ -790,7 +790,7 @@ def extract_definitions(state: GraphState) -> GraphState:
                     "definition_number": defn.definition_number,
                     "section_id": section_id,
                     "dom_node_id": section_id,
-                    "occurrences": occurrences_data,  # NEW: Add occurrence tracking
+                    # Note: occurrences are found lazily at tooltip application time
                 })
 
             _report_progress(state, "definitions", idx, len(sections_to_process))
@@ -875,14 +875,6 @@ def extract_theorems(state: GraphState) -> GraphState:
             print(f"✓ ({count} theorems)")
 
             for thm in response.theorems:
-                # Track occurrences/references to this theorem
-                # Search for references like "Theorem 3.2", "Lemma 1", etc.
-                theorem_label = f"{thm.type.capitalize()} {thm.number}"
-                occurrences_data = extract_occurrences_for_entity(
-                    term=theorem_label,
-                    sections=state["sections"]
-                )
-
                 theorems.append({
                     "type": thm.type,
                     "number": thm.number,
@@ -891,7 +883,7 @@ def extract_theorems(state: GraphState) -> GraphState:
                     "summary": thm.summary,
                     "section_id": section_id,
                     "dom_node_id": section_id,
-                    "occurrences": occurrences_data,  # NEW: Add occurrence tracking
+                    # Note: occurrences are found lazily at tooltip application time
                 })
 
             _report_progress(state, "theorems", idx, len(sections_to_process))

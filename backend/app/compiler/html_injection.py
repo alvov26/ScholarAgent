@@ -8,9 +8,18 @@ This is the most fragile part of the system - we're manipulating HTML at charact
 positions while preserving all existing structure and nested tags.
 """
 
+import os
 from typing import List, Dict, Any, Tuple
 from bs4 import BeautifulSoup, NavigableString, Comment
 import re
+
+# Debug mode controlled by environment variable
+DEBUG = os.getenv("TOOLTIP_AGENT_DEBUG", "false").lower() == "true"
+
+def debug_print(message: str):
+    """Print debug message if DEBUG mode is enabled"""
+    if DEBUG:
+        print(f"[HTML Injection] {message}")
 
 
 # =============================================================================
@@ -85,30 +94,48 @@ def wrap_text_at_offset(
     full_text = get_text_content(node)
 
     if not full_text or char_offset < 0 or char_offset >= len(full_text):
+        debug_print(f"    Invalid offset: full_text_len={len(full_text) if full_text else 0}, offset={char_offset}")
         return False  # Invalid offset
 
     # Check if target text is already wrapped
     target_text = full_text[char_offset:char_offset + length]
     if not target_text.strip():
+        debug_print(f"    Target text is whitespace-only")
         return False  # Can't wrap whitespace-only
+
+    debug_print(f"    Looking for '{target_text}' at offset {char_offset}")
 
     # Find all text nodes
     text_nodes = list(find_text_nodes(node))
     if not text_nodes:
+        debug_print(f"    No text nodes found in node")
         return False
 
+    debug_print(f"    Found {len(text_nodes)} text nodes")
+
     # Track cumulative offset as we walk text nodes
+    # IMPORTANT: We need to account for separators between nodes (like get_text_content does)
     current_offset = 0
+    first_node = True
 
     for text_node in text_nodes:
+        # Add separator space between nodes (matching get_text_content's separator=' ')
+        if not first_node:
+            current_offset += 1  # Account for the separator space
+        first_node = False
+
         node_text = text_node.string
         node_len = len(node_text)
         node_end = current_offset + node_len
+
+        debug_print(f"      Text node: offset {current_offset}-{node_end}, text='{node_text[:50]}...' (len={node_len})")
 
         # Check if target range starts within this text node
         if current_offset <= char_offset < node_end:
             # Calculate position within this text node
             local_offset = char_offset - current_offset
+
+            debug_print(f"      Found target starting at local_offset={local_offset}")
 
             # Check if entire target fits within this text node
             if char_offset + length <= node_end:
@@ -123,6 +150,7 @@ def wrap_text_at_offset(
         current_offset = node_end
 
     # Offset not found
+    debug_print(f"    Offset {char_offset} not found in any text node (final current_offset={current_offset})")
     return False
 
 
@@ -230,32 +258,43 @@ def inject_tooltip_spans(
     - Multi-node spans (skipped for MVP)
     - Overlapping spans (second wrap fails gracefully)
     """
+    debug_print("=" * 60)
+    debug_print(f"Starting HTML injection for {len(suggestions)} suggestions")
+
     soup = BeautifulSoup(html, 'html.parser')
     errors = []
     successful_wraps = 0
     skipped_wraps = 0
 
-    for suggestion in suggestions:
+    for idx, suggestion in enumerate(suggestions, 1):
         entity_id = suggestion['entity_id']
         entity_type = suggestion.get('entity_type', 'unknown')
         occurrences = suggestion.get('occurrences', [])
 
-        for occ in occurrences:
+        debug_print(f"Processing suggestion {idx}/{len(suggestions)}: {entity_id} ({entity_type}) with {len(occurrences)} occurrences")
+
+        for occ_idx, occ in enumerate(occurrences, 1):
             dom_node_id = occ.get('dom_node_id')
             char_offset = occ.get('char_offset')
             length = occ.get('length')
 
             # Validate occurrence data
             if not dom_node_id or char_offset is None or not length:
-                errors.append(f"Invalid occurrence data for {entity_id}")
+                error_msg = f"Invalid occurrence data for {entity_id}: dom_node_id={dom_node_id}, offset={char_offset}, length={length}"
+                debug_print(f"  ERROR: {error_msg}")
+                errors.append(error_msg)
                 if len(errors) >= max_errors:
                     break
                 continue
 
+            debug_print(f"  Occurrence {occ_idx}/{len(occurrences)}: node={dom_node_id}, offset={char_offset}, length={length}")
+
             # Find node by data-id attribute
             node = soup.find(attrs={'data-id': dom_node_id})
             if not node:
-                errors.append(f"Node {dom_node_id} not found for entity {entity_id}")
+                error_msg = f"Node {dom_node_id} not found for entity {entity_id}"
+                debug_print(f"  ERROR: {error_msg}")
+                errors.append(error_msg)
                 if len(errors) >= max_errors:
                     break
                 continue
@@ -271,8 +310,10 @@ def inject_tooltip_spans(
 
             if success:
                 successful_wraps += 1
+                debug_print(f"  ✓ Successfully wrapped")
             else:
                 skipped_wraps += 1
+                debug_print(f"  ⊘ Skipped (already wrapped or multi-node)")
                 # Don't treat skip as error (might be already wrapped or multi-node)
 
         if len(errors) >= max_errors:
@@ -284,6 +325,14 @@ def inject_tooltip_spans(
 
     # Log summary
     total_occurrences = sum(len(s.get('occurrences', [])) for s in suggestions)
+    debug_print("=" * 60)
+    debug_print("HTML Injection Summary:")
+    debug_print(f"  Total occurrences: {total_occurrences}")
+    debug_print(f"  Successfully wrapped: {successful_wraps}")
+    debug_print(f"  Skipped: {skipped_wraps}")
+    debug_print(f"  Errors: {len(errors)}")
+    debug_print("=" * 60)
+
     print(f"\nHTML Injection Summary:")
     print(f"  Total occurrences: {total_occurrences}")
     print(f"  Successfully wrapped: {successful_wraps}")

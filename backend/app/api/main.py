@@ -85,7 +85,8 @@ class TooltipUpdate(BaseModel):
 class TooltipResponse(BaseModel):
     id: str
     paper_id: str
-    dom_node_id: str
+    dom_node_id: Optional[str] = None  # Nullable for semantic tooltips (entity_id set instead)
+    entity_id: Optional[str] = None  # For semantic tooltips linked to KG entities
     user_id: str
     target_text: Optional[str] = None
     content: str
@@ -598,11 +599,31 @@ async def apply_tooltips_endpoint(
     original_html = paper.html_content
 
     try:
+        from backend.app.agents.knowledge_graph import extract_occurrences_for_entity
+
         # Convert Pydantic models to dicts for injection function
         suggestions_dict = [s.model_dump() for s in request.suggestions]
 
-        # Inject spans
-        print(f"\nApplying {len(suggestions_dict)} tooltip suggestions...")
+        print(f"\n[Tooltip Apply] Received request to apply {len(suggestions_dict)} tooltip suggestions for paper {paper_id}")
+
+        # Lazily find occurrences for each selected entity NOW (not during KG build)
+        # This is more efficient - we only search for entities the user actually selected
+        sections = paper.sections_data or []
+        print(f"[Tooltip Apply] Finding occurrences across {len(sections)} sections...")
+
+        for suggestion in suggestions_dict:
+            entity_label = suggestion.get('entity_label', '')
+            # Find all occurrences of this entity in the document
+            occurrences = extract_occurrences_for_entity(
+                term=entity_label,
+                sections=sections
+            )
+            suggestion['occurrences'] = occurrences
+            print(f"[Tooltip Apply]   Entity '{entity_label}': found {len(occurrences)} occurrences")
+
+        total_occurrences = sum(len(s.get('occurrences', [])) for s in suggestions_dict)
+        print(f"[Tooltip Apply] Total occurrences to inject: {total_occurrences}")
+
         modified_html, injection_errors = inject_tooltip_spans(
             html=original_html,
             suggestions=suggestions_dict
