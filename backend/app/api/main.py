@@ -607,7 +607,7 @@ async def apply_tooltips_endpoint(
 
     Note: This operation modifies the paper's HTML content. Consider backing up before applying.
     """
-    from backend.app.compiler.html_injection import inject_tooltip_spans, validate_html_integrity
+    from backend.app.compiler.html_injection import validate_html_integrity
 
     # Load paper
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
@@ -624,8 +624,6 @@ async def apply_tooltips_endpoint(
     original_html = paper.html_content
 
     try:
-        from backend.app.compiler.html_injection import extract_occurrences_from_html
-
         # Convert Pydantic models to dicts for injection function
         suggestions_dict = [s.model_dump() for s in request.suggestions]
 

@@ -13,7 +13,7 @@ Pipeline:
 
 import os
 import re
-from typing import TypedDict, List, Dict, Any, Optional, Tuple
+from typing import TypedDict, List, Dict, Any, Tuple
 from pydantic import BaseModel, Field
 from bs4 import BeautifulSoup
 
@@ -22,10 +22,13 @@ from langgraph.graph import StateGraph, END
 from langchain_anthropic import ChatAnthropic
 from langchain_core.prompts import ChatPromptTemplate
 
-# Import shared utilities from knowledge_graph agent
-from backend.app.agents.knowledge_graph import (
-    run_with_retry,
+# Import shared utilities
+from backend.app.agents.utils import (
     TimeoutException,
+    run_with_retry,
+    strip_html_tags,
+    filter_processable_sections,
+    get_debug_flag,
 )
 
 load_dotenv()
@@ -128,14 +131,6 @@ Find all occurrences of these entity terms in the text content and report them f
 # Agent Functions
 # =============================================================================
 
-def _strip_html_tags(html: str) -> str:
-    """Remove HTML tags from text for cleaner content."""
-    if not html:
-        return ""
-    soup = BeautifulSoup(html, 'html.parser')
-    return soup.get_text(separator=' ', strip=True)
-
-
 def initialize_injection(state: InjectionState) -> InjectionState:
     """
     Initialize the injection workflow.
@@ -155,11 +150,8 @@ def initialize_injection(state: InjectionState) -> InjectionState:
                 "entity_type": s.get("entity_type", "unknown")
             })
 
-    # Count processable sections using text length (same as knowledge_graph.py)
-    sections_total = sum(
-        1 for s in state["sections_data"]
-        if len(_strip_html_tags(s.get("content_html", ""))) >= 50
-    )
+    # Count processable sections using shared utility
+    sections_total = len(filter_processable_sections(state["sections_data"]))
 
     print(f"[HTML Injection] Found {len(entities)} entities to inject across {sections_total} sections")
 
@@ -216,13 +208,10 @@ def process_sections(state: InjectionState) -> InjectionState:
     total_injections = 0
     sections_processed = 0
 
-    debug = os.getenv("HTML_INJECTION_DEBUG", "false").lower() == "true"
+    debug = get_debug_flag("HTML_INJECTION_DEBUG")
 
-    # Filter sections the same way knowledge_graph.py does
-    sections_to_process = [
-        s for s in state["sections_data"]
-        if len(_strip_html_tags(s.get("content_html", ""))) >= 50
-    ]
+    # Filter sections using shared utility
+    sections_to_process = filter_processable_sections(state["sections_data"])
 
     print(f"[HTML Injection] Processing {len(sections_to_process)} sections with content...")
 
@@ -232,7 +221,7 @@ def process_sections(state: InjectionState) -> InjectionState:
         section_id = section.get("id", "")
 
         # Get plain text for LLM (same as knowledge_graph.py)
-        content_text = _strip_html_tags(content_html)
+        content_text = strip_html_tags(content_html)
 
         sections_processed += 1
 
