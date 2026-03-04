@@ -72,6 +72,7 @@ export default function PaperLoader() {
     tooltipMap,
     loading: tooltipsLoading,
     error: tooltipsError,
+    fetchTooltips,
     createTooltip,
     updateTooltip,
     deleteTooltip,
@@ -258,22 +259,28 @@ export default function PaperLoader() {
       }
 
       const data = await response.json();
-      setStatus(`Applied ${data.spans_injected} tooltips (${data.tooltips_created} entities)`);
 
       // Close modal
       setShowSuggestionModal(false);
 
       // Reload paper to show updated HTML
       if (selectedPaperId) {
-        await fetchPaper(selectedPaperId).then(paper => {
-          if (paper) {
-            setCurrentPaper(paper);
-          }
-        });
+        const paper = await fetchPaper(selectedPaperId);
+        if (paper) {
+          setCurrentPaper(paper);
+        }
       }
+
+      // Refresh tooltips to update annotations sidebar
+      await fetchTooltips();
+
+      // Show success message briefly, then clear
+      setStatus(`Applied ${data.spans_injected} spans across ${data.tooltips_created} entities`);
+      setTimeout(() => setStatus(''), 3000);
     } catch (error: any) {
       console.error('Error applying tooltips:', error);
       setStatus(`Error: ${error.message}`);
+      setTimeout(() => setStatus(''), 5000);
     }
   };
 

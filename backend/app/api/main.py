@@ -657,9 +657,11 @@ async def apply_tooltips_endpoint(
         # Commit all changes
         db.commit()
 
-        # Calculate successful spans
-        total_occurrences = sum(len(s.occurrences) for s in request.suggestions)
+        # Calculate successful spans (use suggestions_dict which has the populated occurrences)
+        total_occurrences = sum(len(s.get('occurrences', [])) for s in suggestions_dict)
         spans_injected = total_occurrences - len(injection_errors)
+
+        print(f"[Tooltip Apply] Complete: {spans_injected} spans injected, {tooltips_created} tooltips created")
 
         return TooltipApplicationResponse(
             success=True,
