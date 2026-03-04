@@ -108,10 +108,11 @@ export default function PaperLoader() {
     };
   }, []);
 
-  // Handle Ctrl+F to open search bar
+  // Handle Ctrl+F to open search bar (using code to work with any keyboard layout)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+      // Use e.code instead of e.key to support any keyboard layout
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyF') {
         e.preventDefault();
         setShowSearch(true);
       }
