@@ -555,6 +555,16 @@ async def suggest_tooltips_endpoint(
             entity_type_filter=request.entity_types
         )
 
+        # Cache the suggestions for later use by the apply endpoint
+        paper.tooltip_suggestions_cache = {
+            "expertise": request.user_expertise,
+            "entity_types": request.entity_types,
+            "suggestions": result.get("suggestions", []),
+            "total_entities": result.get("total_entities", 0),
+            "generated_at": datetime.now(UTC).isoformat()
+        }
+        db.commit()
+
         return TooltipSuggestionResponse(**result)
 
     except Exception as e:
@@ -621,28 +631,44 @@ async def apply_tooltips_endpoint(
 
         print(f"\n[Tooltip Apply] Received request to apply {len(suggestions_dict)} tooltip suggestions for paper {paper_id}")
 
-        # Lazily find occurrences for each selected entity NOW (not during KG build)
-        # IMPORTANT: We search in the compiled HTML that we're about to inject into,
-        # not in sections_data, to ensure offsets match exactly
-        print(f"[Tooltip Apply] Finding occurrences in compiled HTML...")
+        # Check for duplicates - skip entities that already have tooltips
+        existing_entity_ids = {
+            t.entity_id for t in db.query(Tooltip).filter(
+                Tooltip.paper_id == paper_id,
+                Tooltip.entity_id.isnot(None)
+            ).all()
+        }
 
-        for suggestion in suggestions_dict:
-            entity_label = suggestion.get('entity_label', '')
-            # Find all occurrences of this entity in the compiled HTML
-            occurrences = extract_occurrences_from_html(
-                term=entity_label,
-                html=original_html
+        # Filter out already-applied entities
+        original_count = len(suggestions_dict)
+        suggestions_dict = [s for s in suggestions_dict if s.get('entity_id') not in existing_entity_ids]
+
+        if len(suggestions_dict) < original_count:
+            skipped = original_count - len(suggestions_dict)
+            print(f"[Tooltip Apply] Skipped {skipped} entities that already have tooltips")
+
+        if not suggestions_dict:
+            return TooltipApplicationResponse(
+                success=True,
+                spans_injected=0,
+                tooltips_created=0,
+                errors=["All selected entities already have tooltips applied"]
             )
-            suggestion['occurrences'] = occurrences
-            print(f"[Tooltip Apply]   Entity '{entity_label}': found {len(occurrences)} occurrences")
 
-        total_occurrences = sum(len(s.get('occurrences', [])) for s in suggestions_dict)
-        print(f"[Tooltip Apply] Total occurrences to inject: {total_occurrences}")
+        # NEW APPROACH: Use AI model to inject spans into each subsection
+        # This is much more robust than manual offset tracking
+        print(f"[Tooltip Apply] Using AI model to inject spans into subsections...")
 
-        modified_html, injection_errors = inject_tooltip_spans(
-            html=original_html,
+        from backend.app.compiler.ai_html_injection import inject_spans_with_ai
+
+        modified_html, injection_errors = inject_spans_with_ai(
+            html_content=paper.html_content,
+            sections_data=paper.sections_data or [],
             suggestions=suggestions_dict
         )
+
+        if not modified_html:
+            raise ValueError("AI injection failed to produce modified HTML")
 
         # Validate HTML integrity
         is_valid, validation_error = validate_html_integrity(original_html, modified_html)
@@ -652,17 +678,17 @@ async def apply_tooltips_endpoint(
         # Persist modified HTML
         paper.html_content = modified_html
 
-        # Create Tooltip records for each suggestion
+        # Create Tooltip records for each suggestion (use suggestions_dict which is already filtered)
         tooltips_created = 0
-        for suggestion in request.suggestions:
+        for suggestion in suggestions_dict:
             # Create semantic tooltip (entity_id is set, dom_node_id is None)
             new_tooltip = Tooltip(
                 id=str(uuid.uuid4()),
                 paper_id=paper_id,
-                entity_id=suggestion.entity_id,  # NEW: Link to KG entity
+                entity_id=suggestion.get('entity_id'),  # NEW: Link to KG entity
                 dom_node_id=None,  # Semantic tooltips don't have single anchor
-                target_text=suggestion.entity_label,  # Display label
-                content=suggestion.tooltip_content,
+                target_text=suggestion.get('entity_label'),  # Display label
+                content=suggestion.get('tooltip_content'),
                 created_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC)
             )

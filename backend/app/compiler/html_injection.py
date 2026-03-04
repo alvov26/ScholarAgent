@@ -182,113 +182,76 @@ def wrap_text_at_offset(
         return False  # Can't wrap whitespace-only
 
     debug_print(f"    Looking for '{target_text}' at offset {char_offset}")
+    debug_print(f"    Target should start with: {repr(full_text[char_offset:char_offset+30])}")
 
-    # Use stripped_strings generator which is what get_text(strip=True) uses internally
-    # This gives us individual stripped strings in document order
-    stripped_strings_list = list(node.stripped_strings)
+    # NEW APPROACH: Walk through text nodes and track cumulative position in get_text() output
+    # This correctly handles existing spans without complex position mapping
 
-    if not stripped_strings_list:
-        debug_print(f"    No stripped strings found in node")
-        return False
-
-    debug_print(f"    Found {len(stripped_strings_list)} stripped strings")
-
-    # Build position map: for each character in the final text, track which stripped_string it came from
-    # and the offset within that string
-    position_map = []  # List of (string_index, offset_in_string) for each character
-
-    for str_idx, s in enumerate(stripped_strings_list):
-        # Add separator space before this string (if not first)
-        if str_idx > 0:
-            position_map.append((-1, -1))  # Sentinel for separator space
-
-        # Add each character from this string
-        for char_idx, char in enumerate(s):
-            position_map.append((str_idx, char_idx))
-
-    # Reconstruct text to verify
-    reconstructed_chars = []
-    for str_idx, offset in position_map:
-        if str_idx == -1:  # Separator
-            reconstructed_chars.append(' ')
-        else:
-            reconstructed_chars.append(stripped_strings_list[str_idx][offset])
-
-    reconstructed = ''.join(reconstructed_chars).strip()
-    expected = get_text_content(node)
-
-    debug_print(f"    Reconstructed text: '{reconstructed[:100]}...' (len={len(reconstructed)})")
-
-    if reconstructed != expected:
-        debug_print(f"    WARNING: Reconstruction mismatch!")
-        debug_print(f"    Expected len: {len(expected)}, Got len: {len(reconstructed)}")
-        if len(expected) > 0 and len(reconstructed) > 0:
-            first_diff = next((i for i in range(min(len(expected), len(reconstructed))) if expected[i] != reconstructed[i]), -1)
-            if first_diff >= 0:
-                debug_print(f"    First diff at {first_diff}: expected {repr(expected[max(0,first_diff-10):first_diff+10])}, got {repr(reconstructed[max(0,first_diff-10):first_diff+10])}")
-
-    # Now find the stripped_string index and offset at char_offset
-    if char_offset < 0 or char_offset >= len(position_map):
-        debug_print(f"    Offset {char_offset} out of range (text length: {len(position_map)})")
-        return False
-
-    str_idx, local_offset = position_map[char_offset]
-
-    # Check if we landed on a separator
-    if str_idx == -1:
-        debug_print(f"    Offset {char_offset} falls on separator space - cannot wrap")
-        return False
-
-    # Check if entire target fits within the same stripped_string
-    end_offset = char_offset + length - 1
-    if end_offset >= len(position_map):
-        debug_print(f"    Target extends beyond text bounds (end_offset={end_offset}, text_len={len(position_map)})")
-        return False
-
-    end_str_idx, end_local = position_map[end_offset]
-
-    if str_idx != end_str_idx:
-        debug_print(f"    Target spans multiple stripped_strings ({str_idx} to {end_str_idx}) - skipping for MVP")
-        return False
-
-    # Now we need to find the actual NavigableString that contains this stripped_string
-    # stripped_strings are already stripped, so we need to find which raw text node they came from
-    target_string = stripped_strings_list[str_idx]
-
-    # Find the text node containing this exact stripped string
-    # This is tricky because stripped_strings removes whitespace
-    # We need to search through all text nodes to find one whose stripped version matches
     all_text_nodes = list(find_text_nodes(node))
-    target_text_node = None
-
-    for text_node in all_text_nodes:
-        node_str = text_node.string if text_node.string else ""
-        if node_str.strip() == target_string:
-            target_text_node = text_node
-            break
-
-    if not target_text_node:
-        debug_print(f"    Could not find text node for stripped_string: {repr(target_string[:50])}")
+    if not all_text_nodes:
+        debug_print(f"    No text nodes found")
         return False
 
-    # Calculate the local offset within the raw text node
-    # The stripped_string has had leading whitespace removed
-    raw_node_str = target_text_node.string if target_text_node.string else ""
-    leading_ws = len(raw_node_str) - len(raw_node_str.lstrip())
-    raw_local_offset = local_offset + leading_ws
+    debug_print(f"    Found {len(all_text_nodes)} text nodes total")
 
-    # Show what we're wrapping
-    target_text = raw_node_str[raw_local_offset:raw_local_offset + length]
-    preview_start = max(0, raw_local_offset - 10)
-    preview_end = min(len(raw_node_str), raw_local_offset + length + 10)
-    preview = raw_node_str[preview_start:preview_end]
+    # Build cumulative position tracking
+    # We need to match how get_text(separator=' ', strip=True) works:
+    # - It gets all stripped_strings
+    # - Joins them with ' '
+    # - But each stripped_string can span multiple text nodes or be from one text node
 
-    debug_print(f"    Stripped string {str_idx}: {repr(target_string[:50])}")
-    debug_print(f"    Raw text node: {repr(raw_node_str[:70])}")
-    debug_print(f"    Will wrap at raw_offset={raw_local_offset}: {repr(target_text)} in context: {repr(preview)}")
+    # Track position in the full_text and find which text node contains char_offset
+    cumulative_pos = 0
+    prev_had_content = False  # Track if we need separator space
 
-    # Wrap the text
-    return _wrap_within_single_node(target_text_node, raw_local_offset, length, entity_id, entity_type)
+    for text_node_idx, text_node in enumerate(all_text_nodes):
+        raw_text = text_node.string if text_node.string else ""
+        stripped_text = raw_text.strip()
+
+        if not stripped_text:
+            continue  # Skip whitespace-only nodes
+
+        # Add separator space if this isn't the first content
+        if prev_had_content:
+            cumulative_pos += 1  # Space separator
+
+        # Check if our target offset falls within this text node's stripped content
+        node_start_pos = cumulative_pos
+        node_end_pos = cumulative_pos + len(stripped_text)
+
+        debug_print(f"    Text node {text_node_idx}: pos [{node_start_pos}:{node_end_pos}], content: {repr(stripped_text[:60])}")
+
+        if char_offset >= node_start_pos and char_offset < node_end_pos:
+            # Found the text node containing our target offset!
+            local_offset_in_stripped = char_offset - node_start_pos
+
+            # Calculate offset in raw text (account for leading whitespace)
+            leading_ws = len(raw_text) - len(raw_text.lstrip())
+            raw_local_offset = leading_ws + local_offset_in_stripped
+
+            # Verify we can wrap the full length within this node
+            if char_offset + length > node_end_pos:
+                debug_print(f"    Target spans beyond this text node ({char_offset + length} > {node_end_pos}) - skipping")
+                return False
+
+            # Show what we're wrapping
+            target_in_raw = raw_text[raw_local_offset:raw_local_offset + length]
+            preview_start = max(0, raw_local_offset - 10)
+            preview_end = min(len(raw_text), raw_local_offset + length + 10)
+            preview = raw_text[preview_start:preview_end]
+
+            debug_print(f"    Found in text node {text_node_idx}")
+            debug_print(f"    Raw text node: {repr(raw_text[:70])}")
+            debug_print(f"    Will wrap at raw_offset={raw_local_offset}: {repr(target_in_raw)} in context: {repr(preview)}")
+
+            # Wrap the text
+            return _wrap_within_single_node(text_node, raw_local_offset, length, entity_id, entity_type)
+
+        cumulative_pos = node_end_pos
+        prev_had_content = True
+
+    debug_print(f"    Could not find text node containing offset {char_offset} (total text length: {cumulative_pos})")
+    return False
 
 
 def _wrap_within_single_node(
@@ -320,10 +283,17 @@ def _wrap_within_single_node(
         text = text_node.string
         parent = text_node.parent
 
+        debug_print(f"      _wrap_within_single_node: text_node.string = {repr(text[:100])}")
+        debug_print(f"      _wrap_within_single_node: local_offset = {local_offset}, length = {length}")
+
         # Split text into three parts
         before = text[:local_offset]
         target = text[local_offset:local_offset + length]
         after = text[local_offset + length:]
+
+        debug_print(f"      before: {repr(before[-30:] if len(before) > 30 else before)}")
+        debug_print(f"      target: {repr(target)}")
+        debug_print(f"      after: {repr(after[:30])}")
 
         # Check if already wrapped (look for existing kg-entity spans nearby)
         # This is a simple heuristic - we check if parent or sibling is already a kg-entity span
@@ -338,6 +308,8 @@ def _wrap_within_single_node(
         # Get index of current text node in parent's children
         index = list(parent.children).index(text_node)
 
+        debug_print(f"      Extracting text_node and inserting at index {index}")
+
         # Remove original text node
         text_node.extract()
 
@@ -351,6 +323,8 @@ def _wrap_within_single_node(
 
         if after:
             parent.insert(index, after)
+
+        debug_print(f"      Successfully inserted before/span/after")
 
         return True
 
@@ -621,10 +595,17 @@ def remove_tooltip_spans(html: str, entity_id: str) -> str:
     debug_print(f"Removing {len(spans)} tooltip spans for entity {entity_id}")
 
     for span in spans:
-        # Replace span with its text content
-        span.unwrap()
+        try:
+            # Replace span with its text content
+            span.unwrap()
+        except Exception as e:
+            print(f"Warning: Failed to unwrap span for entity {entity_id}: {e}")
+            # If unwrap fails, try to at least remove the span and keep its text
+            if span.parent:
+                span.replace_with(span.get_text())
 
-    return str(soup)
+    # Use better serialization
+    return soup.decode(formatter='html')
 
 
 if __name__ == "__main__":

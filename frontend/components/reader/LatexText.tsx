@@ -32,6 +32,8 @@ export function LatexText({ text, className = '' }: LatexTextProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     const typeset = async () => {
       if (typeof window !== 'undefined' && window.MathJax?.typesetPromise && containerRef.current) {
         try {
@@ -43,16 +45,27 @@ export function LatexText({ text, className = '' }: LatexTextProps) {
           if (window.MathJax.startup?.promise) {
             await window.MathJax.startup.promise;
           }
+          // Check if component is still mounted before typesetting
+          if (cancelled || !containerRef.current) {
+            return;
+          }
           // Typeset the container
           await window.MathJax.typesetPromise([containerRef.current]);
         } catch (err) {
-          console.error('[LatexText] MathJax typesetting error:', err);
+          // Ignore errors if component unmounted during typesetting
+          if (!cancelled) {
+            console.error('[LatexText] MathJax typesetting error:', err);
+          }
         }
       }
     };
 
     // Typeset after mounting
     typeset();
+
+    return () => {
+      cancelled = true;
+    };
   }, [text]);
 
   // Convert $ delimiters to \( \) for inline math (MathJax format)

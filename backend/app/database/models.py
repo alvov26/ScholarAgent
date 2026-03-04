@@ -35,6 +35,10 @@ class Paper(Base):
     # Knowledge graph (populated by agent pipeline)
     knowledge_graph = Column(JSON, nullable=True)   # {nodes: [...], edges: [...], metadata: {...}}
 
+    # Cached tooltip suggestions (populated by suggest endpoint, used by apply endpoint)
+    # Stored as JSON: {expertise: str, suggestions: [...], generated_at: timestamp}
+    tooltip_suggestions_cache = Column(JSON, nullable=True)
+
     tooltips = relationship("Tooltip", back_populates="paper", cascade="all, delete-orphan")
 
     def __repr__(self):
