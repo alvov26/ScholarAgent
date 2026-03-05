@@ -321,7 +321,8 @@ def suggest_tooltips(
 
         suggestion = {
             "entity_id": entity['id'],
-            "entity_label": entity.get('label', entity.get('symbol', entity.get('term', 'Unknown'))),
+            "entity_label": entity.get('latex') if entity.get('type') == 'symbol' else entity.get('label',
+                                                                                      entity.get('term', 'Unknown')),
             "entity_type": entity.get('type', 'unknown'),
             "tooltip_content": tooltip_content,
             "occurrences": occurrences
