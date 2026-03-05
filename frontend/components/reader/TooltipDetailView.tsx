@@ -1,7 +1,16 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { X, Trash2 } from 'lucide-react';
 import type { Tooltip } from '@/hooks/useTooltips';
+
+declare global {
+  interface Window {
+    MathJax?: {
+      typesetPromise: (elements?: HTMLElement[]) => Promise<void>;
+    };
+  }
+}
 
 interface TooltipDetailViewProps {
   tooltip: Tooltip | null;
@@ -14,8 +23,20 @@ export default function TooltipDetailView({
   onClose,
   onDelete,
 }: TooltipDetailViewProps) {
-  // Note: MathJax typesetting is not needed here because tooltip content
-  // is plain text/markdown from KG extraction, not HTML with MathML
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Typeset MathJax once when content is rendered
+  // Note: Component will remount when tooltip.id changes (via key prop in parent)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.MathJax?.typesetPromise && containerRef.current) {
+      // Use queueMicrotask for minimal delay - executes after current render
+      queueMicrotask(() => {
+        window.MathJax!.typesetPromise([containerRef.current!]).catch((err) => {
+          console.error('[TooltipDetailView] MathJax typesetting error:', err);
+        });
+      });
+    }
+  }, []); // Empty deps - only run once per mount
 
   if (!tooltip) {
     return (
@@ -26,11 +47,11 @@ export default function TooltipDetailView({
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div ref={containerRef} className="h-full flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 flex-shrink-0">
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold text-slate-900 truncate">
+          <h3 className="text-sm font-semibold text-slate-900">
             {tooltip.target_text || 'Annotation'}
           </h3>
           {tooltip.entity_id && (

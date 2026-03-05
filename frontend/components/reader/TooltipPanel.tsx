@@ -170,6 +170,7 @@ export default function TooltipPanel({
           >
             {activeTooltip ? (
               <TooltipDetailView
+                key={activeTooltip.id}
                 tooltip={activeTooltip}
                 onClose={onCloseDetail || (() => {})}
                 onDelete={onDelete}
