@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Plus, MessageSquare, BookOpen } from 'lucide-react';
 import { Panel, Group, Separator } from 'react-resizable-panels';
+import type { ImperativeHandle as PanelImperativeHandle } from 'react-resizable-panels';
 import type { Tooltip, EntityTooltipMap } from '@/hooks/useTooltips';
 import type { TOCNode } from '@/utils/parseTOC';
 import TooltipList from './TooltipList';
@@ -45,6 +46,7 @@ export default function TooltipPanel({
   const [mode, setMode] = useState<'comments' | 'glossary'>('comments');
   const commentsRef = useRef<HTMLDivElement>(null);
   const glossaryRef = useRef<HTMLDivElement>(null);
+  const detailPanelRef = useRef<PanelImperativeHandle>(null);
 
   // Memoize filtered tooltips to avoid recalculating on every render
   const commentTooltips = useMemo(
@@ -61,6 +63,17 @@ export default function TooltipPanel({
     () => activeEntityId && entityTooltipMap ? entityTooltipMap[activeEntityId] || null : null,
     [activeEntityId, entityTooltipMap]
   );
+
+  // Collapse/expand detail panel based on whether there's an active tooltip
+  useEffect(() => {
+    if (detailPanelRef.current) {
+      if (activeTooltip) {
+        detailPanelRef.current.expand();
+      } else {
+        detailPanelRef.current.collapse();
+      }
+    }
+  }, [activeTooltip]);
 
   // Re-typeset MathJax when switching tabs to render previously hidden content
   useEffect(() => {
@@ -156,11 +169,12 @@ export default function TooltipPanel({
             </div>
           </Panel>
 
-          {/* Separator and Detail Panel - always rendered, visibility controlled */}
+          {/* Separator and Detail Panel - collapsible */}
           <Separator className="h-1 bg-slate-200 hover:bg-indigo-400 transition-colors cursor-row-resize" />
 
           {/* Bottom Panel - Detail View */}
           <Panel
+            panelRef={detailPanelRef}
             id="tooltip-detail-panel"
             defaultSize={40}
             minSize={20}
@@ -168,17 +182,13 @@ export default function TooltipPanel({
             collapsedSize={0}
             className="bg-slate-50"
           >
-            {activeTooltip ? (
+            {activeTooltip && (
               <TooltipDetailView
                 key={activeTooltip.id}
                 tooltip={activeTooltip}
                 onClose={onCloseDetail || (() => {})}
                 onDelete={onDelete}
               />
-            ) : (
-              <div className="h-full flex items-center justify-center text-sm text-slate-400 px-4 text-center">
-                Click on a highlighted term in the document to view its definition
-              </div>
             )}
           </Panel>
         </Group>
