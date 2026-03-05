@@ -205,7 +205,7 @@ SYMBOL_USER_PROMPT = """Section: {section_title}
 
 Content:
 {content_text}
-w
+
 Extract all mathematical symbols and key notation from this section."""
 
 
