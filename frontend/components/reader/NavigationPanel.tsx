@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { List, Network } from 'lucide-react';
 import TableOfContents from './TableOfContents';
 import { KnowledgeGraphView } from './KnowledgeGraphView';
@@ -19,6 +19,7 @@ interface NavigationPanelProps {
   toc: TOCNode[];
   onNavigate?: (id: string) => void;
   currentSectionId?: string | null;
+  onFocusGraphNode?: (nodeId: string) => void;
 }
 
 export default function NavigationPanel({
@@ -26,10 +27,32 @@ export default function NavigationPanel({
   toc,
   onNavigate,
   currentSectionId,
+  onFocusGraphNode,
 }: NavigationPanelProps) {
   const [mode, setMode] = useState<'toc' | 'graph'>('toc');
   const tocRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<HTMLDivElement>(null);
+
+  const focusNodeRef = useRef<((nodeId: string) => void) | null>(null);
+
+  // Handle node focus request - switch to graph tab and focus
+  const handleFocusNode = useCallback((nodeId: string) => {
+    setMode('graph');
+    // Defer the focus call to ensure tab is switched and graph is ready
+    setTimeout(() => {
+      if (focusNodeRef.current) {
+        focusNodeRef.current(nodeId);
+      }
+    }, 150);
+  }, []);
+
+  // Expose the focus function to parent through callback
+  useEffect(() => {
+    if (onFocusGraphNode) {
+      // Pass handleFocusNode as the implementation
+      onFocusGraphNode(handleFocusNode as any);
+    }
+  }, [onFocusGraphNode, handleFocusNode]);
 
   // Re-typeset MathJax when switching tabs to render previously hidden content
   useEffect(() => {
@@ -98,6 +121,7 @@ export default function NavigationPanel({
           <KnowledgeGraphView
             paperId={paperId}
             onNavigate={onNavigate}
+            onRegisterFocusHandler={(handler) => { focusNodeRef.current = handler; }}
           />
         </div>
       </div>

@@ -29,6 +29,7 @@ interface TooltipPanelProps {
   activeEntityId?: string | null;
   entityTooltipMap?: EntityTooltipMap;
   onCloseDetail?: () => void;
+  onFocusGraphNode?: (nodeId: string) => void;
 }
 
 export default function TooltipPanel({
@@ -42,6 +43,7 @@ export default function TooltipPanel({
   activeEntityId,
   entityTooltipMap,
   onCloseDetail,
+  onFocusGraphNode,
 }: TooltipPanelProps) {
   const [mode, setMode] = useState<'comments' | 'glossary'>('comments');
   const commentsRef = useRef<HTMLDivElement>(null);
@@ -188,6 +190,7 @@ export default function TooltipPanel({
                 tooltip={activeTooltip}
                 onClose={onCloseDetail || (() => {})}
                 onDelete={onDelete}
+                onFocusGraphNode={onFocusGraphNode}
               />
             )}
           </Panel>

@@ -43,6 +43,7 @@ const edgeColors: Record<string, string> = {
 interface KnowledgeGraphViewProps {
   paperId: string;
   onNavigate?: (domNodeId: string) => void;
+  onRegisterFocusHandler?: (handler: (nodeId: string) => void) => void;
 }
 
 interface ApiNode {
@@ -152,7 +153,7 @@ function hierarchicalLayout(nodes: Node[], edges: Edge[]): { nodes: Node[]; edge
   return { nodes, edges };
 }
 
-function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProps) {
+function KnowledgeGraphViewInner({ paperId, onNavigate, onRegisterFocusHandler }: KnowledgeGraphViewProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [loading, setLoading] = useState(true);
@@ -451,7 +452,7 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
   }, [nodes]);
 
   // Helper to show node info by ID and optionally center on it
-  const showNodeById = useCallback((nodeId: string, centerOnNode = false) => {
+  const showNodeById = useCallback((nodeId: string, centerOnNode = false, activateFocus = false) => {
     // Look in allNodes to find node data (in case we're in focus mode and node isn't displayed)
     const nodeData = allNodes.find(n => n.id === nodeId);
     if (nodeData) {
@@ -467,6 +468,12 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
       });
       setSelectedEdge(null);
 
+      // Activate focus mode if requested (shows subgraph with neighbors)
+      if (activateFocus) {
+        setFocusMode(true);
+        setFocusedNodeId(nodeId);
+      }
+
       if (centerOnNode) {
         // Find the node in current display
         const displayedNode = nodes.find(n => n.id === nodeId);
@@ -480,6 +487,17 @@ function KnowledgeGraphViewInner({ paperId, onNavigate }: KnowledgeGraphViewProp
       }
     }
   }, [allNodes, nodes, reactFlowInstance]);
+
+  // Register the focus handler with parent
+  useEffect(() => {
+    if (onRegisterFocusHandler && reactFlowInstance) {
+      const focusHandler = (nodeId: string) => {
+        // Activate focus mode (show subgraph), center view, and open node panel
+        showNodeById(nodeId, true, true);
+      };
+      onRegisterFocusHandler(focusHandler);
+    }
+  }, [onRegisterFocusHandler, reactFlowInstance, showNodeById]);
 
   // Search functionality - always search all nodes, not just displayed ones
   useEffect(() => {

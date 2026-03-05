@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { X, Trash2 } from 'lucide-react';
+import { X, Trash2, Network } from 'lucide-react';
 import type { Tooltip } from '@/hooks/useTooltips';
 
 declare global {
@@ -16,12 +16,14 @@ interface TooltipDetailViewProps {
   tooltip: Tooltip | null;
   onClose: () => void;
   onDelete?: (tooltipId: string) => void;
+  onFocusGraphNode?: (nodeId: string) => void;
 }
 
 export default function TooltipDetailView({
   tooltip,
   onClose,
   onDelete,
+  onFocusGraphNode,
 }: TooltipDetailViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -61,6 +63,15 @@ export default function TooltipDetailView({
           )}
         </div>
         <div className="flex items-center gap-1 ml-2">
+          {tooltip.entity_id && onFocusGraphNode && (
+            <button
+              onClick={() => onFocusGraphNode(tooltip.entity_id!)}
+              className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+              title="View in knowledge graph"
+            >
+              <Network size={14} />
+            </button>
+          )}
           {onDelete && (
             <button
               onClick={() => onDelete(tooltip.id)}

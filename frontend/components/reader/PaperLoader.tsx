@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { usePapers, Paper, PaperDetail, Section } from "@/hooks/usePapers";
 import { useTooltips } from "@/hooks/useTooltips";
 import { HTMLRenderer } from "./HTMLRenderer";
@@ -71,6 +71,9 @@ export default function PaperLoader() {
 
   // Active tooltip state (for detail view in right sidebar)
   const [activeEntityId, setActiveEntityId] = useState<string | null>(null);
+
+  // Store focus graph node handler from NavigationPanel
+  const focusGraphNodeRef = useRef<((nodeId: string) => void) | null>(null);
 
   const {
     tooltips: allTooltips,
@@ -379,6 +382,7 @@ export default function PaperLoader() {
       paperId={selectedPaperId || ''}
       toc={toc}
       onNavigate={handleNavigate}
+      onFocusGraphNode={(handler: any) => { focusGraphNodeRef.current = handler; }}
     />
   );
 
@@ -588,6 +592,11 @@ export default function PaperLoader() {
       activeEntityId={activeEntityId}
       entityTooltipMap={entityTooltipMap}
       onCloseDetail={() => setActiveEntityId(null)}
+      onFocusGraphNode={(nodeId: string) => {
+        if (focusGraphNodeRef.current) {
+          focusGraphNodeRef.current(nodeId);
+        }
+      }}
     />
   );
 
