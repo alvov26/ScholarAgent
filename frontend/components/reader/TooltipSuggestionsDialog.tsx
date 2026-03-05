@@ -39,6 +39,7 @@ export default function TooltipSuggestionsDialog({
   const [regenerating, setRegenerating] = useState(false);
 
   // Manual suggestion form state
+  const [formCollapsed, setFormCollapsed] = useState(false);
   const [manualLabel, setManualLabel] = useState('');
   const [manualType, setManualType] = useState('definition');
   const [manualContent, setManualContent] = useState('');
@@ -85,7 +86,7 @@ export default function TooltipSuggestionsDialog({
 
       if (response.ok) {
         const newSuggestion = await response.json();
-        setSuggestions([...suggestions, newSuggestion]);
+        setSuggestions([newSuggestion, ...suggestions]);
         setSelectedIds(new Set([...selectedIds, newSuggestion.id]));
         // Clear form
         setManualLabel('');
@@ -125,25 +126,20 @@ export default function TooltipSuggestionsDialog({
     }
   };
 
-  // Group suggestions by type and AI status
-  const groupedSuggestions = useMemo(() => {
-    const groups: Record<string, { ai: StoredSuggestion[]; manual: StoredSuggestion[] }> = {
-      symbol: { ai: [], manual: [] },
-      definition: { ai: [], manual: [] },
-      theorem: { ai: [], manual: [] },
-      other: { ai: [], manual: [] },
-    };
+  // Separate manual and AI suggestions
+  const { manualSuggestions, aiSuggestions } = useMemo(() => {
+    const manual: StoredSuggestion[] = [];
+    const ai: StoredSuggestion[] = [];
 
     suggestions.forEach(s => {
-      const type = s.entity_type in groups ? s.entity_type : 'other';
       if (s.is_ai_generated) {
-        groups[type].ai.push(s);
+        ai.push(s);
       } else {
-        groups[type].manual.push(s);
+        manual.push(s);
       }
     });
 
-    return groups;
+    return { manualSuggestions: manual, aiSuggestions: ai };
   }, [suggestions]);
 
   if (!isOpen) return null;
@@ -191,8 +187,6 @@ export default function TooltipSuggestionsDialog({
   };
 
   const selectedCount = selectedIds.size;
-  const aiCount = suggestions.filter(s => s.is_ai_generated).length;
-  const manualCount = suggestions.filter(s => !s.is_ai_generated).length;
 
   const renderSuggestion = (suggestion: StoredSuggestion) => {
     const isSelected = selectedIds.has(suggestion.id);
@@ -220,16 +214,13 @@ export default function TooltipSuggestionsDialog({
           {/* Content */}
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 flex items-center gap-2">
+              <div className="flex-1">
                 <div className="font-medium text-slate-900 break-words">
-                  <LatexText text={suggestion.entity_label} />
+                  <LatexText text={suggestion.entity_label} className="inline" />
                 </div>
-                {suggestion.is_ai_generated && (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-indigo-100 text-indigo-700 rounded">
-                    <Sparkles size={10} />
-                    AI
-                  </span>
-                )}
+                <div className="text-xs text-slate-500 mt-0.5 capitalize">
+                  {suggestion.entity_type}
+                </div>
               </div>
 
               <div className="flex items-center gap-1 flex-shrink-0">
@@ -270,7 +261,7 @@ export default function TooltipSuggestionsDialog({
                 value={currentContent}
                 onChange={(e) => handleContentEdit(suggestion.id, e.target.value)}
                 rows={3}
-                className="w-full text-sm px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full text-sm px-3 py-2 border border-slate-300 rounded-md bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
           </div>
@@ -281,7 +272,7 @@ export default function TooltipSuggestionsDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
           <div>
@@ -290,7 +281,7 @@ export default function TooltipSuggestionsDialog({
               Tooltip Suggestions
             </h2>
             <p className="text-sm text-slate-600 mt-1">
-              {aiCount} AI suggestions, {manualCount} manual
+              {manualSuggestions.length} manual, {aiSuggestions.length} AI-generated
             </p>
           </div>
           <button
@@ -302,69 +293,22 @@ export default function TooltipSuggestionsDialog({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="animate-spin text-indigo-600" size={32} />
-            </div>
-          ) : (
-            <>
-              {/* AI Suggestions Section */}
-              <div className="mb-6">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
-                    AI Suggestions ({aiCount})
-                  </h3>
-                  <button
-                    onClick={handleRegenerateAI}
-                    disabled={!hasKnowledgeGraph || regenerating}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {regenerating ? (
-                      <>
-                        <Loader2 size={12} className="animate-spin" />
-                        Regenerating...
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles size={12} />
-                        Regenerate AI Suggestions
-                      </>
-                    )}
-                  </button>
-                </div>
+        <div className="flex-1 overflow-hidden flex flex-col">
+          {/* Manual Tooltip Form - Fixed at top */}
+          <div className="border-b border-slate-200">
+            <button
+              onClick={() => setFormCollapsed(!formCollapsed)}
+              className="w-full flex items-center justify-between px-6 py-3 text-left hover:bg-slate-50 transition-colors"
+            >
+              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
+                Add Manual Tooltip
+              </h3>
+              {formCollapsed ? <ChevronRight size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
+            </button>
 
-                {aiCount === 0 ? (
-                  <div className="text-sm text-slate-500 text-center py-8 bg-slate-50 rounded-lg">
-                    {hasKnowledgeGraph
-                      ? 'No AI suggestions yet. Click "Regenerate AI Suggestions" to generate.'
-                      : 'Build a knowledge graph first to enable AI suggestions.'}
-                  </div>
-                ) : (
-                  Object.entries(groupedSuggestions).map(([type, { ai, manual }]) => {
-                    if (ai.length === 0) return null;
-                    return (
-                      <div key={`ai-${type}`} className="mb-4">
-                        <h4 className="text-xs font-semibold text-slate-500 mb-2 capitalize">
-                          {type}s ({ai.length})
-                        </h4>
-                        <div className="space-y-2">
-                          {ai.map(renderSuggestion)}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-
-              {/* Manual Suggestions Section */}
-              <div className="border-t pt-6">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-3">
-                  Manual Tooltips ({manualCount})
-                </h3>
-
-                {/* Add Manual Tooltip Form */}
-                <div className="bg-slate-50 rounded-lg p-4 mb-4">
+            {!formCollapsed && (
+              <div className="px-6 pb-4">
+                <div className="bg-slate-50 rounded-lg p-4">
                   <div className="grid grid-cols-2 gap-3 mb-3">
                     <div>
                       <label className="text-xs font-medium text-slate-600 block mb-1">
@@ -375,7 +319,7 @@ export default function TooltipSuggestionsDialog({
                         value={manualLabel}
                         onChange={(e) => setManualLabel(e.target.value)}
                         placeholder="e.g., α, gradient descent"
-                        className="w-full text-sm px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="w-full text-sm px-3 py-2 border border-slate-300 rounded-md bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       />
                     </div>
                     <div>
@@ -385,12 +329,12 @@ export default function TooltipSuggestionsDialog({
                       <select
                         value={manualType}
                         onChange={(e) => setManualType(e.target.value)}
-                        className="w-full text-sm px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="w-full text-sm px-3 py-2 border border-slate-300 rounded-md bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       >
-                        <option value="symbol">Symbol</option>
-                        <option value="definition">Definition</option>
-                        <option value="theorem">Theorem</option>
-                        <option value="other">Other</option>
+                        <option value="symbol" className="text-slate-900">Symbol</option>
+                        <option value="definition" className="text-slate-900">Definition</option>
+                        <option value="theorem" className="text-slate-900">Theorem</option>
+                        <option value="other" className="text-slate-900">Other</option>
                       </select>
                     </div>
                   </div>
@@ -403,7 +347,7 @@ export default function TooltipSuggestionsDialog({
                       onChange={(e) => setManualContent(e.target.value)}
                       placeholder="Explanation or definition..."
                       rows={2}
-                      className="w-full text-sm px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="w-full text-sm px-3 py-2 border border-slate-300 rounded-md bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                   </div>
                   <button
@@ -416,29 +360,92 @@ export default function TooltipSuggestionsDialog({
                     ) : (
                       <Plus size={14} />
                     )}
-                    Add Manual Tooltip
+                    Add Tooltip
                   </button>
                 </div>
-
-                {/* Manual Suggestions List */}
-                {manualCount > 0 && (
-                  Object.entries(groupedSuggestions).map(([type, { ai, manual }]) => {
-                    if (manual.length === 0) return null;
-                    return (
-                      <div key={`manual-${type}`} className="mb-4">
-                        <h4 className="text-xs font-semibold text-slate-500 mb-2 capitalize">
-                          {type}s ({manual.length})
-                        </h4>
-                        <div className="space-y-2">
-                          {manual.map(renderSuggestion)}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
               </div>
-            </>
-          )}
+            )}
+          </div>
+
+          {/* Scrollable Suggestions List */}
+          <div className="flex-1 overflow-y-auto px-6 py-4">
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="animate-spin text-indigo-600" size={32} />
+              </div>
+            ) : (
+              <>
+                {/* Manual Tooltips */}
+                {manualSuggestions.length > 0 && (
+                  <div className="mb-6">
+                    <h3 className="text-xs font-semibold text-slate-500 mb-3 uppercase tracking-wider">
+                      Manual Tooltips ({manualSuggestions.length})
+                    </h3>
+                    <div className="space-y-2">
+                      {manualSuggestions.map(renderSuggestion)}
+                    </div>
+                  </div>
+                )}
+
+                {/* AI Suggestions Section */}
+                {aiSuggestions.length > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                        AI Suggestions ({aiSuggestions.length})
+                      </h3>
+                      <button
+                        onClick={handleRegenerateAI}
+                        disabled={!hasKnowledgeGraph || regenerating}
+                        className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {regenerating ? (
+                          <>
+                            <Loader2 size={12} className="animate-spin" />
+                            Regenerating...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles size={12} />
+                            Regenerate
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {aiSuggestions.map(renderSuggestion)}
+                    </div>
+                  </div>
+                )}
+
+                {/* Empty state for AI suggestions */}
+                {aiSuggestions.length === 0 && (
+                  <div className="mb-6">
+                    <h3 className="text-xs font-semibold text-slate-500 mb-3 uppercase tracking-wider">
+                      AI Suggestions (0)
+                    </h3>
+                    <div className="text-sm text-slate-500 text-center py-8 bg-slate-50 rounded-lg border border-slate-200">
+                      {hasKnowledgeGraph ? (
+                        <div>
+                          <p className="mb-2">No AI suggestions yet.</p>
+                          <button
+                            onClick={handleRegenerateAI}
+                            disabled={regenerating}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50"
+                          >
+                            <Sparkles size={12} />
+                            Generate AI Suggestions
+                          </button>
+                        </div>
+                      ) : (
+                        'Build a knowledge graph first to enable AI suggestions.'
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
 
         {/* Footer */}
