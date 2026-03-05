@@ -70,6 +70,7 @@ export default function PaperLoader() {
   const [showSearch, setShowSearch] = useState(false);
 
   const {
+    tooltips: allTooltips,
     tooltipMap,
     loading: tooltipsLoading,
     error: tooltipsError,
@@ -348,11 +349,6 @@ export default function PaperLoader() {
       }, 1500);
     }
   }, []);
-
-  // Get all tooltips as flat array
-  const allTooltips = useMemo(() => {
-    return Object.values(tooltipMap).flat();
-  }, [tooltipMap]);
 
   // Handle tooltip edit from panel
   const handleTooltipEdit = useCallback((tooltip: any) => {
