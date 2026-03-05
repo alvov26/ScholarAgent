@@ -21,25 +21,39 @@ export interface TooltipMap {
   [domNodeId: string]: Tooltip[];
 }
 
+export interface EntityTooltipMap {
+  [entityId: string]: Tooltip;
+}
+
 export function useTooltips(paperId: string | null) {
   const [tooltips, setTooltips] = useState<Tooltip[]>([]);
   const [tooltipMap, setTooltipMap] = useState<TooltipMap>({});
+  const [entityTooltipMap, setEntityTooltipMap] = useState<EntityTooltipMap>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Build a map of dom_node_id -> tooltips[] for easy lookup
+  // Build maps for O(1) lookups
   useEffect(() => {
-    const map: TooltipMap = {};
+    const domMap: TooltipMap = {};
+    const entityMap: EntityTooltipMap = {};
+
     tooltips.forEach(t => {
-      // Only map tooltips that have a dom_node_id (comments, not glossary)
+      // Map dom_node_id -> tooltips[] (for comments)
       if (t.dom_node_id) {
-        if (!map[t.dom_node_id]) {
-          map[t.dom_node_id] = [];
+        if (!domMap[t.dom_node_id]) {
+          domMap[t.dom_node_id] = [];
         }
-        map[t.dom_node_id].push(t);
+        domMap[t.dom_node_id].push(t);
+      }
+
+      // Map entity_id -> tooltip (for glossary/semantic tooltips)
+      if (t.entity_id) {
+        entityMap[t.entity_id] = t;
       }
     });
-    setTooltipMap(map);
+
+    setTooltipMap(domMap);
+    setEntityTooltipMap(entityMap);
   }, [tooltips]);
 
   const fetchTooltips = useCallback(async () => {
@@ -177,6 +191,7 @@ export function useTooltips(paperId: string | null) {
   return {
     tooltips,
     tooltipMap,
+    entityTooltipMap,
     loading,
     error,
     fetchTooltips,

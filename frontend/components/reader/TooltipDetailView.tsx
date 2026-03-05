@@ -1,16 +1,7 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
 import { X, Trash2 } from 'lucide-react';
 import type { Tooltip } from '@/hooks/useTooltips';
-
-declare global {
-  interface Window {
-    MathJax?: {
-      typesetPromise: (elements?: HTMLElement[]) => Promise<void>;
-    };
-  }
-}
 
 interface TooltipDetailViewProps {
   tooltip: Tooltip | null;
@@ -23,26 +14,8 @@ export default function TooltipDetailView({
   onClose,
   onDelete,
 }: TooltipDetailViewProps) {
-  const contentRef = useRef<HTMLDivElement>(null);
-
-  // Re-typeset MathJax when tooltip changes
-  useEffect(() => {
-    const retypeset = async () => {
-      if (typeof window !== 'undefined' && window.MathJax?.typesetPromise && contentRef.current) {
-        try {
-          await window.MathJax.typesetPromise([contentRef.current]);
-        } catch (err) {
-          console.error('[TooltipDetailView] MathJax typesetting error:', err);
-        }
-      }
-    };
-
-    if (tooltip) {
-      // Small delay to ensure content is rendered
-      const timeout = setTimeout(retypeset, 50);
-      return () => clearTimeout(timeout);
-    }
-  }, [tooltip?.id, tooltip?.content]);
+  // Note: MathJax typesetting is not needed here because tooltip content
+  // is plain text/markdown from KG extraction, not HTML with MathML
 
   if (!tooltip) {
     return (
@@ -89,8 +62,7 @@ export default function TooltipDetailView({
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-4 py-3">
         <div
-          ref={contentRef}
-          className="text-sm text-slate-700 prose prose-sm max-w-none"
+          className="text-sm text-slate-700 prose prose-sm max-w-none whitespace-pre-wrap"
           dangerouslySetInnerHTML={{ __html: tooltip.content }}
         />
       </div>

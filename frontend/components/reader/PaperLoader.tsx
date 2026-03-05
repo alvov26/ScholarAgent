@@ -75,6 +75,7 @@ export default function PaperLoader() {
   const {
     tooltips: allTooltips,
     tooltipMap,
+    entityTooltipMap,
     loading: tooltipsLoading,
     error: tooltipsError,
     fetchTooltips,
@@ -585,6 +586,7 @@ export default function PaperLoader() {
       onNavigate={handleNavigate}
       onAddTooltips={() => setShowSuggestionDialog(true)}
       activeEntityId={activeEntityId}
+      entityTooltipMap={entityTooltipMap}
       onCloseDetail={() => setActiveEntityId(null)}
     />
   );
