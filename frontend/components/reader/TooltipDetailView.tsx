@@ -48,6 +48,9 @@ export default function TooltipDetailView({
     );
   }
 
+  // Check if this is a KG entity (not a manual tooltip)
+  const isKGEntity = tooltip.entity_id && !tooltip.entity_id.startsWith('manual_');
+
   return (
     <div ref={containerRef} className="h-full flex flex-col">
       {/* Header */}
@@ -63,7 +66,7 @@ export default function TooltipDetailView({
           )}
         </div>
         <div className="flex items-center gap-1 ml-2">
-          {tooltip.entity_id && onFocusGraphNode && (
+          {isKGEntity && onFocusGraphNode && (
             <button
               onClick={() => onFocusGraphNode(tooltip.entity_id!)}
               className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
