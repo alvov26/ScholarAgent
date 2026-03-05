@@ -1,10 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { List, Network } from 'lucide-react';
 import TableOfContents from './TableOfContents';
 import { KnowledgeGraphView } from './KnowledgeGraphView';
 import type { TOCNode } from '@/utils/parseTOC';
+
+declare global {
+  interface Window {
+    MathJax?: {
+      typesetPromise: (elements?: HTMLElement[]) => Promise<void>;
+    };
+  }
+}
 
 interface NavigationPanelProps {
   paperId: string;
@@ -20,6 +28,28 @@ export default function NavigationPanel({
   currentSectionId,
 }: NavigationPanelProps) {
   const [mode, setMode] = useState<'toc' | 'graph'>('toc');
+  const tocRef = useRef<HTMLDivElement>(null);
+  const graphRef = useRef<HTMLDivElement>(null);
+
+  // Re-typeset MathJax when switching tabs to render previously hidden content
+  useEffect(() => {
+    const retypeset = async () => {
+      if (typeof window !== 'undefined' && window.MathJax?.typesetPromise) {
+        try {
+          const activeRef = mode === 'toc' ? tocRef : graphRef;
+          if (activeRef.current) {
+            await window.MathJax.typesetPromise([activeRef.current]);
+          }
+        } catch (err) {
+          console.error('[NavigationPanel] MathJax typesetting error:', err);
+        }
+      }
+    };
+
+    // Small delay to ensure the tab is visible before typesetting
+    const timeout = setTimeout(retypeset, 50);
+    return () => clearTimeout(timeout);
+  }, [mode]);
 
   return (
     <div className="h-full flex flex-col">
@@ -57,14 +87,14 @@ export default function NavigationPanel({
 
       {/* Content - both components stay mounted to preserve state */}
       <div className="flex-1 overflow-hidden relative">
-        <div className={`h-full overflow-y-auto ${mode === 'toc' ? '' : 'hidden'}`}>
+        <div ref={tocRef} className={`h-full overflow-y-auto ${mode === 'toc' ? '' : 'hidden'}`}>
           <TableOfContents
             nodes={toc}
             onNavigate={onNavigate}
             currentSectionId={currentSectionId}
           />
         </div>
-        <div className={`h-full ${mode === 'graph' ? '' : 'hidden'}`}>
+        <div ref={graphRef} className={`h-full ${mode === 'graph' ? '' : 'hidden'}`}>
           <KnowledgeGraphView
             paperId={paperId}
             onNavigate={onNavigate}
