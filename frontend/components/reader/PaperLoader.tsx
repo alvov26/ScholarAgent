@@ -69,6 +69,9 @@ export default function PaperLoader() {
   // Search state
   const [showSearch, setShowSearch] = useState(false);
 
+  // Active tooltip state (for detail view in right sidebar)
+  const [activeEntityId, setActiveEntityId] = useState<string | null>(null);
+
   const {
     tooltips: allTooltips,
     tooltipMap,
@@ -540,6 +543,7 @@ export default function PaperLoader() {
             onTooltipCreate={createTooltip}
             onTooltipUpdate={updateTooltip}
             onTooltipDelete={handleDeleteTooltip}
+            onEntityClick={setActiveEntityId}
           />
         </div>
       ) : currentPaper && !currentPaper.has_html ? (
@@ -580,6 +584,8 @@ export default function PaperLoader() {
       onPin={handleTooltipPin}
       onNavigate={handleNavigate}
       onAddTooltips={() => setShowSuggestionDialog(true)}
+      activeEntityId={activeEntityId}
+      onCloseDetail={() => setActiveEntityId(null)}
     />
   );
 

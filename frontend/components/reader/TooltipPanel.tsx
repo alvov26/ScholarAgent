@@ -2,10 +2,12 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Plus, MessageSquare, BookOpen } from 'lucide-react';
+import { Panel, Group, Separator } from 'react-resizable-panels';
 import type { Tooltip } from '@/hooks/useTooltips';
 import type { TOCNode } from '@/utils/parseTOC';
 import TooltipList from './TooltipList';
 import GlossaryList from './GlossaryList';
+import TooltipDetailView from './TooltipDetailView';
 
 declare global {
   interface Window {
@@ -23,6 +25,8 @@ interface TooltipPanelProps {
   onPin?: (tooltipId: string) => void;
   onNavigate?: (domNodeId: string) => void;
   onAddTooltips?: () => void;
+  activeEntityId?: string | null;
+  onCloseDetail?: () => void;
 }
 
 export default function TooltipPanel({
@@ -33,6 +37,8 @@ export default function TooltipPanel({
   onPin,
   onNavigate,
   onAddTooltips,
+  activeEntityId,
+  onCloseDetail,
 }: TooltipPanelProps) {
   const [mode, setMode] = useState<'comments' | 'glossary'>('comments');
   const commentsRef = useRef<HTMLDivElement>(null);
@@ -41,6 +47,11 @@ export default function TooltipPanel({
   // Separate tooltips by type
   const commentTooltips = tooltips.filter(t => t.dom_node_id && !t.entity_id);
   const glossaryTooltips = tooltips.filter(t => t.entity_id);
+
+  // Find active tooltip
+  const activeTooltip = activeEntityId
+    ? tooltips.find(t => t.entity_id === activeEntityId)
+    : null;
 
   // Re-typeset MathJax when switching tabs to render previously hidden content
   useEffect(() => {
@@ -102,25 +113,61 @@ export default function TooltipPanel({
         </button>
       </div>
 
-      {/* Content - both components stay mounted to preserve state */}
-      <div className="flex-1 overflow-hidden relative">
-        <div ref={commentsRef} className={`h-full overflow-y-auto px-4 ${mode === 'comments' ? '' : 'hidden'}`}>
-          <TooltipList
-            tooltips={commentTooltips}
-            toc={toc}
-            onEdit={onEdit}
-            onDelete={onDelete}
-            onPin={onPin}
-            onNavigate={onNavigate}
-          />
-        </div>
-        <div ref={glossaryRef} className={`h-full overflow-y-auto px-4 ${mode === 'glossary' ? '' : 'hidden'}`}>
-          <GlossaryList
-            tooltips={glossaryTooltips}
-            onEdit={onEdit}
-            onDelete={onDelete}
-          />
-        </div>
+      {/* Vertical split: List on top, Detail view on bottom */}
+      <div className="flex-1 overflow-hidden">
+        <Group
+          orientation="vertical"
+          style={{ height: '100%' }}
+          id="tooltip-panel-group"
+        >
+          {/* Top Panel - List */}
+          <Panel
+            id="tooltip-list-panel"
+            defaultSize={activeTooltip ? 60 : 100}
+            minSize={30}
+          >
+            <div className="h-full overflow-hidden relative">
+              <div ref={commentsRef} className={`h-full overflow-y-auto px-4 ${mode === 'comments' ? '' : 'hidden'}`}>
+                <TooltipList
+                  tooltips={commentTooltips}
+                  toc={toc}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                  onPin={onPin}
+                  onNavigate={onNavigate}
+                />
+              </div>
+              <div ref={glossaryRef} className={`h-full overflow-y-auto px-4 ${mode === 'glossary' ? '' : 'hidden'}`}>
+                <GlossaryList
+                  tooltips={glossaryTooltips}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                />
+              </div>
+            </div>
+          </Panel>
+
+          {/* Separator - only show if detail view is active */}
+          {activeTooltip && (
+            <>
+              <Separator className="h-1 bg-slate-200 hover:bg-indigo-400 transition-colors cursor-row-resize" />
+
+              {/* Bottom Panel - Detail View */}
+              <Panel
+                id="tooltip-detail-panel"
+                defaultSize={40}
+                minSize={20}
+                className="bg-slate-50"
+              >
+                <TooltipDetailView
+                  tooltip={activeTooltip}
+                  onClose={onCloseDetail || (() => {})}
+                  onDelete={onDelete}
+                />
+              </Panel>
+            </>
+          )}
+        </Group>
       </div>
 
       {/* Add Tooltips Button */}

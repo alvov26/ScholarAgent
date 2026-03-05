@@ -13,6 +13,7 @@ interface HTMLRendererProps {
   onTooltipCreate: (domNodeId: string, content: string, targetText?: string) => void;
   onTooltipUpdate: (tooltipId: string, content: string, targetText?: string) => void;
   onTooltipDelete: (tooltipId: string) => void;
+  onEntityClick?: (entityId: string) => void;
 }
 
 /**
@@ -28,8 +29,12 @@ export function HTMLRenderer({
   tooltips,
   onTooltipCreate,
   onTooltipUpdate,
-  onTooltipDelete
+  onTooltipDelete,
+  onEntityClick
 }: HTMLRendererProps) {
+  // Counter for generating stable keys for kg-entity spans
+  let entitySpanCounter = 0;
+
   const options: HTMLReactParserOptions = {
     replace: (domNode) => {
       if (!(domNode instanceof Element)) {
@@ -43,6 +48,30 @@ export function HTMLRenderer({
             key={domNode.attribs?.['data-id'] || Math.random().toString(36)}
             mathml={domNode}
           />
+        );
+      }
+
+      // Handle .kg-entity spans - make them clickable for detail view
+      if (domNode.name === 'span' && domNode.attribs?.['class']?.includes('kg-entity')) {
+        const entityId = domNode.attribs['data-entity-id'];
+        // Use a stable key combining entity ID and a counter
+        // This ensures the same key across re-renders while avoiding duplicates
+        const uniqueKey = `kg-entity-${entityId}-${entitySpanCounter++}`;
+        return (
+          <span
+            key={uniqueKey}
+            className={domNode.attribs['class']}
+            data-entity-id={entityId}
+            data-entity-type={domNode.attribs['data-entity-type']}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (entityId && onEntityClick) {
+                onEntityClick(entityId);
+              }
+            }}
+          >
+            {domToReact(domNode.children as DOMNode[], options)}
+          </span>
         );
       }
 
