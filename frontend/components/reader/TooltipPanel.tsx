@@ -1,11 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Plus, MessageSquare, BookOpen } from 'lucide-react';
 import type { Tooltip } from '@/hooks/useTooltips';
 import type { TOCNode } from '@/utils/parseTOC';
 import TooltipList from './TooltipList';
 import GlossaryList from './GlossaryList';
+
+declare global {
+  interface Window {
+    MathJax?: {
+      typesetPromise: (elements?: HTMLElement[]) => Promise<void>;
+    };
+  }
+}
 
 interface TooltipPanelProps {
   tooltips: Tooltip[];
@@ -27,10 +35,32 @@ export default function TooltipPanel({
   onAddTooltips,
 }: TooltipPanelProps) {
   const [mode, setMode] = useState<'comments' | 'glossary'>('comments');
+  const commentsRef = useRef<HTMLDivElement>(null);
+  const glossaryRef = useRef<HTMLDivElement>(null);
 
   // Separate tooltips by type
   const commentTooltips = tooltips.filter(t => t.dom_node_id && !t.entity_id);
   const glossaryTooltips = tooltips.filter(t => t.entity_id);
+
+  // Re-typeset MathJax when switching tabs to render previously hidden content
+  useEffect(() => {
+    const retypeset = async () => {
+      if (typeof window !== 'undefined' && window.MathJax?.typesetPromise) {
+        try {
+          const activeRef = mode === 'comments' ? commentsRef : glossaryRef;
+          if (activeRef.current) {
+            await window.MathJax.typesetPromise([activeRef.current]);
+          }
+        } catch (err) {
+          console.error('[TooltipPanel] MathJax typesetting error:', err);
+        }
+      }
+    };
+
+    // Small delay to ensure the tab is visible before typesetting
+    const timeout = setTimeout(retypeset, 50);
+    return () => clearTimeout(timeout);
+  }, [mode]);
 
   return (
     <div className="h-full flex flex-col">
@@ -74,7 +104,7 @@ export default function TooltipPanel({
 
       {/* Content - both components stay mounted to preserve state */}
       <div className="flex-1 overflow-hidden relative">
-        <div className={`h-full overflow-y-auto px-4 ${mode === 'comments' ? '' : 'hidden'}`}>
+        <div ref={commentsRef} className={`h-full overflow-y-auto px-4 ${mode === 'comments' ? '' : 'hidden'}`}>
           <TooltipList
             tooltips={commentTooltips}
             toc={toc}
@@ -84,7 +114,7 @@ export default function TooltipPanel({
             onNavigate={onNavigate}
           />
         </div>
-        <div className={`h-full overflow-y-auto px-4 ${mode === 'glossary' ? '' : 'hidden'}`}>
+        <div ref={glossaryRef} className={`h-full overflow-y-auto px-4 ${mode === 'glossary' ? '' : 'hidden'}`}>
           <GlossaryList
             tooltips={glossaryTooltips}
             onEdit={onEdit}
