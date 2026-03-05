@@ -17,6 +17,7 @@ import json
 
 from backend.app.database.connection import get_db
 from backend.app.database.models import Paper, Tooltip
+from backend.app.database.models import TooltipSuggestion as TooltipSuggestionModel
 from backend.app.compiler.latexml_compiler import compile_latex_to_html, CompilationResult
 
 app = FastAPI(title="Scholar Agent API")
@@ -130,6 +131,30 @@ class TooltipSuggestionResponse(BaseModel):
     suggestions: List[TooltipSuggestion]
     total_entities: int
     suggested_count: int
+
+
+# Stored Tooltip Suggestion Models
+
+class StoredSuggestionResponse(BaseModel):
+    """Response for a stored tooltip suggestion"""
+    id: str
+    paper_id: str
+    entity_id: Optional[str]
+    entity_label: str
+    entity_type: str
+    tooltip_content: str
+    is_ai_generated: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class CreateManualSuggestionRequest(BaseModel):
+    """Request to create a manual tooltip suggestion"""
+    entity_label: str
+    entity_type: str  # symbol, definition, theorem, other
+    tooltip_content: str
 
 
 # Tooltip Application Models (Phase 3)
@@ -563,6 +588,26 @@ async def suggest_tooltips_endpoint(
             "total_entities": result.get("total_entities", 0),
             "generated_at": datetime.now(UTC).isoformat()
         }
+
+        # Clear existing AI suggestions for this paper (keep manual ones)
+        db.query(TooltipSuggestionModel).filter(
+            TooltipSuggestionModel.paper_id == paper_id,
+            TooltipSuggestionModel.is_ai_generated == True
+        ).delete()
+
+        # Store new AI suggestions in database
+        for suggestion in result.get("suggestions", []):
+            stored_suggestion = TooltipSuggestionModel(
+                id=str(uuid.uuid4()),
+                paper_id=paper_id,
+                entity_id=suggestion.get("entity_id"),
+                entity_label=suggestion.get("entity_label"),
+                entity_type=suggestion.get("entity_type"),
+                tooltip_content=suggestion.get("tooltip_content"),
+                is_ai_generated=True,
+            )
+            db.add(stored_suggestion)
+
         db.commit()
 
         return TooltipSuggestionResponse(**result)
@@ -577,6 +622,109 @@ async def suggest_tooltips_endpoint(
             detail=f"Failed to suggest tooltips: {str(e)}"
         )
 
+
+# =============================================================================
+# Stored Tooltip Suggestions Endpoints
+# =============================================================================
+
+@app.get("/api/papers/{paper_id}/suggestions", response_model=List[StoredSuggestionResponse])
+async def get_stored_suggestions(
+    paper_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get all stored tooltip suggestions for a paper (both AI and manual).
+
+    Returns suggestions sorted by creation date.
+    """
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    suggestions = db.query(TooltipSuggestionModel).filter(
+        TooltipSuggestionModel.paper_id == paper_id
+    ).order_by(TooltipSuggestionModel.created_at.desc()).all()
+
+    return suggestions
+
+
+@app.post("/api/papers/{paper_id}/suggestions/manual", response_model=StoredSuggestionResponse)
+async def create_manual_suggestion(
+    paper_id: str,
+    request: CreateManualSuggestionRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Create a manual tooltip suggestion.
+
+    Users can add custom tooltip suggestions that will appear alongside AI suggestions.
+    """
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    suggestion_id = str(uuid.uuid4())
+
+    suggestion = TooltipSuggestionModel(
+        id=suggestion_id,
+        paper_id=paper_id,
+        entity_id=None,  # Manual suggestions don't have entity_id
+        entity_label=request.entity_label,
+        entity_type=request.entity_type,
+        tooltip_content=request.tooltip_content,
+        is_ai_generated=False,
+    )
+
+    db.add(suggestion)
+    db.commit()
+    db.refresh(suggestion)
+
+    return suggestion
+
+
+@app.delete("/api/papers/{paper_id}/suggestions/{suggestion_id}")
+async def delete_suggestion(
+    paper_id: str,
+    suggestion_id: str,
+    db: Session = Depends(get_db)
+):
+    """Delete a stored tooltip suggestion."""
+    suggestion = db.query(TooltipSuggestionModel).filter(
+        TooltipSuggestionModel.id == suggestion_id,
+        TooltipSuggestionModel.paper_id == paper_id
+    ).first()
+
+    if not suggestion:
+        raise HTTPException(status_code=404, detail="Suggestion not found")
+
+    db.delete(suggestion)
+    db.commit()
+
+    return {"status": "success"}
+
+
+@app.delete("/api/papers/{paper_id}/suggestions")
+async def clear_all_suggestions(
+    paper_id: str,
+    db: Session = Depends(get_db)
+):
+    """Clear all stored tooltip suggestions for a paper."""
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    db.query(TooltipSuggestionModel).filter(
+        TooltipSuggestionModel.paper_id == paper_id
+    ).delete()
+
+    db.commit()
+
+    return {"status": "success"}
+
+
+# =============================================================================
+# Tooltip Application Endpoint
+# =============================================================================
 
 @app.post("/api/papers/{paper_id}/tooltips/apply", response_model=TooltipApplicationResponse)
 async def apply_tooltips_endpoint(

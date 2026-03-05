@@ -40,6 +40,7 @@ class Paper(Base):
     tooltip_suggestions_cache = Column(JSON, nullable=True)
 
     tooltips = relationship("Tooltip", back_populates="paper", cascade="all, delete-orphan")
+    tooltip_suggestions = relationship("TooltipSuggestion", back_populates="paper", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Paper(id={self.id[:8]}..., filename={self.filename})>"
@@ -75,3 +76,32 @@ class Tooltip(Base):
 
     def __repr__(self):
         return f"<Tooltip(id={self.id[:8]}..., paper_id={self.paper_id[:8]}...)>"
+
+
+class TooltipSuggestion(Base):
+    """Stores tooltip suggestions (both AI-generated and manual) before they're applied"""
+    __tablename__ = "tooltip_suggestions"
+
+    id = Column(String(64), primary_key=True)  # UUID
+    paper_id = Column(String(64), ForeignKey("papers.id", ondelete="CASCADE"), nullable=False)
+
+    # Suggestion metadata
+    entity_id = Column(String(128), nullable=True)  # KG entity ID (for AI suggestions)
+    entity_label = Column(String(512), nullable=False)  # The term/symbol to annotate
+    entity_type = Column(String(64), nullable=False)  # symbol, definition, theorem, other
+    tooltip_content = Column(Text, nullable=False)  # The tooltip text
+    is_ai_generated = Column(Boolean, default=False, nullable=False)  # True for AI, False for manual
+
+    # User info
+    user_id = Column(String(64), default="default")
+    created_at = Column(DateTime, default=utcnow)
+
+    paper = relationship("Paper", back_populates="tooltip_suggestions")
+
+    __table_args__ = (
+        Index("idx_suggestion_paper", "paper_id"),
+        Index("idx_suggestion_paper_entity", "paper_id", "entity_id"),
+    )
+
+    def __repr__(self):
+        return f"<TooltipSuggestion(id={self.id[:8]}..., label={self.entity_label})>"

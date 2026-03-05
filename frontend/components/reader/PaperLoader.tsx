@@ -7,8 +7,7 @@ import { HTMLRenderer } from "./HTMLRenderer";
 import ResizableLayout from "./ResizableLayout";
 import NavigationPanel from "./NavigationPanel";
 import TooltipPanel from "./TooltipPanel";
-import TooltipSuggestionModal, { TooltipSuggestion } from "./TooltipSuggestionModal";
-import SuggestTooltipsButton from "./SuggestTooltipsButton";
+import TooltipSuggestionsDialog, { StoredSuggestion } from "./TooltipSuggestionsDialog";
 import SearchBar from "./SearchBar";
 import { parseTOC, TOCNode } from "@/utils/parseTOC";
 import { Loader2, Upload, ExternalLink, Trash2, RefreshCw, FileText, AlertCircle, Network } from "lucide-react";
@@ -64,10 +63,8 @@ export default function PaperLoader() {
   const [status, setStatus] = useState<string>("");
 
   // Tooltip suggestion state
-  const [showSuggestionModal, setShowSuggestionModal] = useState(false);
-  const [suggestions, setSuggestions] = useState<TooltipSuggestion[]>([]);
-  const [totalEntityCount, setTotalEntityCount] = useState(0);
-  const [suggesting, setSuggesting] = useState(false);
+  const [showSuggestionDialog, setShowSuggestionDialog] = useState(false);
+  const [userExpertise, setUserExpertise] = useState<string>("");
 
   // Search state
   const [showSearch, setShowSearch] = useState(false);
@@ -222,19 +219,18 @@ export default function PaperLoader() {
     setStatus("");
   };
 
-  // Handle suggest tooltips
-  const handleSuggestTooltips = async (expertise: string) => {
-    if (!selectedPaperId) return;
+  // Handle regenerate AI suggestions
+  const handleRegenerateAI = async () => {
+    if (!selectedPaperId || !userExpertise) return;
 
-    setSuggesting(true);
-    setStatus('Generating tooltip suggestions...');
+    setStatus('Generating AI tooltip suggestions...');
 
     try {
       const response = await fetch(`http://localhost:8000/api/papers/${selectedPaperId}/tooltips/suggest`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_expertise: expertise,
+          user_expertise: userExpertise,
           entity_types: null,
         }),
       });
@@ -245,15 +241,12 @@ export default function PaperLoader() {
       }
 
       const data = await response.json();
-      setSuggestions(data.suggestions);
-      setTotalEntityCount(data.total_entities);
-      setShowSuggestionModal(true);
-      setStatus(`Found ${data.suggested_count} tooltips to suggest`);
+      setStatus(`Generated ${data.suggested_count} AI tooltip suggestions`);
+      setTimeout(() => setStatus(""), 3000);
     } catch (error: any) {
       console.error('Error suggesting tooltips:', error);
       setStatus(`Error: ${error.message}`);
-    } finally {
-      setSuggesting(false);
+      setTimeout(() => setStatus(""), 5000);
     }
   };
 
@@ -273,17 +266,28 @@ export default function PaperLoader() {
   };
 
   // Handle apply suggestions
-  const handleApplySuggestions = async (selectedSuggestions: TooltipSuggestion[]) => {
+  const handleApplySuggestions = async (selectedSuggestions: StoredSuggestion[]) => {
     if (!selectedPaperId) return;
 
     setStatus('Applying tooltips...');
 
     try {
+      // Convert StoredSuggestion to format expected by backend
+      // Note: We need to fetch occurrences from the stored HTML, but for now
+      // the backend will handle finding occurrences based on entity_label
+      const suggestionsForBackend = selectedSuggestions.map(s => ({
+        entity_id: s.entity_id || `manual_${s.id}`,
+        entity_label: s.entity_label,
+        entity_type: s.entity_type,
+        tooltip_content: s.tooltip_content,
+        occurrences: [], // Backend will find occurrences
+      }));
+
       const response = await fetch(`http://localhost:8000/api/papers/${selectedPaperId}/tooltips/apply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          suggestions: selectedSuggestions,
+          suggestions: suggestionsForBackend,
         }),
       });
 
@@ -293,8 +297,8 @@ export default function PaperLoader() {
 
       const data = await response.json();
 
-      // Close modal
-      setShowSuggestionModal(false);
+      // Close dialog
+      setShowSuggestionDialog(false);
 
       // Reload paper to show updated HTML
       if (selectedPaperId) {
@@ -518,11 +522,6 @@ export default function PaperLoader() {
               <Network size={12} />
               Build Graph
             </button>
-            <SuggestTooltipsButton
-              disabled={!currentPaper?.has_knowledge_graph || loading}
-              loading={suggesting}
-              onSuggest={handleSuggestTooltips}
-            />
             <button
               onClick={handleDelete}
               disabled={loading}
@@ -584,6 +583,7 @@ export default function PaperLoader() {
       onDelete={handleDeleteTooltip}
       onPin={handleTooltipPin}
       onNavigate={handleNavigate}
+      onAddTooltips={() => setShowSuggestionDialog(true)}
     />
   );
 
@@ -593,16 +593,20 @@ export default function PaperLoader() {
         leftPanel={leftPanel}
         mainPanel={mainPanel}
         rightPanel={rightPanel}
+        onExpertiseChange={setUserExpertise}
       />
 
-      {/* Tooltip Suggestion Modal */}
-      <TooltipSuggestionModal
-        isOpen={showSuggestionModal}
-        suggestions={suggestions}
-        totalEntities={totalEntityCount}
-        onClose={() => setShowSuggestionModal(false)}
-        onApply={handleApplySuggestions}
-      />
+      {/* Tooltip Suggestions Dialog */}
+      {selectedPaperId && (
+        <TooltipSuggestionsDialog
+          isOpen={showSuggestionDialog}
+          paperId={selectedPaperId}
+          hasKnowledgeGraph={currentPaper?.has_knowledge_graph || false}
+          onClose={() => setShowSuggestionDialog(false)}
+          onApply={handleApplySuggestions}
+          onRegenerateAI={handleRegenerateAI}
+        />
+      )}
 
       {/* Search Bar */}
       <SearchBar isOpen={showSearch} onClose={() => setShowSearch(false)} />
