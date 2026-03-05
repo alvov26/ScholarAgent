@@ -430,6 +430,37 @@ async def get_tooltips(paper_id: str, db: Session = Depends(get_db)):
     return tooltips
 
 
+@app.get("/api/papers/{paper_id}/tooltips/comments", response_model=list[TooltipResponse])
+async def get_comment_tooltips(paper_id: str, db: Session = Depends(get_db)):
+    """Get comment tooltips (DOM-based, not entity-based) for a paper."""
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    # Comments have dom_node_id set and entity_id is None
+    tooltips = db.query(Tooltip).filter(
+        Tooltip.paper_id == paper_id,
+        Tooltip.dom_node_id.isnot(None),
+        Tooltip.entity_id.is_(None)
+    ).all()
+    return tooltips
+
+
+@app.get("/api/papers/{paper_id}/tooltips/glossary", response_model=list[TooltipResponse])
+async def get_glossary_tooltips(paper_id: str, db: Session = Depends(get_db)):
+    """Get glossary tooltips (entity-based) for a paper."""
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    # Glossary entries have entity_id set
+    tooltips = db.query(Tooltip).filter(
+        Tooltip.paper_id == paper_id,
+        Tooltip.entity_id.isnot(None)
+    ).all()
+    return tooltips
+
+
 @app.post("/api/papers/{paper_id}/tooltips", response_model=TooltipResponse)
 async def create_tooltip(
     paper_id: str,
@@ -664,11 +695,13 @@ async def create_manual_suggestion(
         raise HTTPException(status_code=404, detail="Paper not found")
 
     suggestion_id = str(uuid.uuid4())
+    # Give manual suggestions a special entity_id with "manual_" prefix
+    manual_entity_id = f"manual_{suggestion_id}"
 
     suggestion = TooltipSuggestionModel(
         id=suggestion_id,
         paper_id=paper_id,
-        entity_id=None,  # Manual suggestions don't have entity_id
+        entity_id=manual_entity_id,  # Manual suggestions get special entity_id
         entity_label=request.entity_label,
         entity_type=request.entity_type,
         tooltip_content=request.tooltip_content,

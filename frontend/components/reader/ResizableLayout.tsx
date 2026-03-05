@@ -174,7 +174,7 @@ export default function ResizableLayout({
           className="bg-white border-l border-slate-200"
         >
           {!rightCollapsed && (
-            <div className="h-full overflow-y-auto p-4">
+            <div className="h-full overflow-hidden">
               {rightPanel}
             </div>
           )}

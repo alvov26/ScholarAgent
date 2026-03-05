@@ -37,7 +37,9 @@ function TooltipCard({ tooltip, onEdit, onDelete, onPin, onNavigate }: TooltipCa
   const isPinned = tooltip.is_pinned;
 
   const handleNavigate = () => {
-    onNavigate?.(tooltip.dom_node_id);
+    if (tooltip.dom_node_id) {
+      onNavigate?.(tooltip.dom_node_id);
+    }
   };
 
   return (
@@ -217,15 +219,13 @@ export default function TooltipList({
   onPin,
   onNavigate,
 }: TooltipListProps) {
-  const [strategyName, setStrategyName] = useState<'section' | 'flat' | 'date'>('section');
+  const [strategyName, setStrategyName] = useState<'section' | 'date'>('section');
 
   // Select grouping strategy
   const strategy: GroupingStrategy = useMemo(() => {
     switch (strategyName) {
       case 'section':
         return new SectionGroupingStrategy();
-      case 'flat':
-        return new FlatGroupingStrategy();
       case 'date':
         return new DateGroupingStrategy();
       default:
@@ -243,9 +243,9 @@ export default function TooltipList({
     return (
       <div className="bg-slate-50 rounded-lg border border-slate-200 p-6 text-center">
         <FileText size={32} className="mx-auto text-slate-300 mb-2" />
-        <p className="text-sm text-slate-500">No tooltips yet</p>
+        <p className="text-sm text-slate-500">No comments yet</p>
         <p className="text-xs text-slate-400 mt-1">
-          Hover over text in the paper and click + to add tooltips
+          Click on a paragraph and choose "Add Annotation"
         </p>
       </div>
     );
@@ -257,7 +257,7 @@ export default function TooltipList({
       <div className="flex items-center gap-2">
         <span className="text-xs text-slate-500 font-medium">Group by:</span>
         <div className="flex gap-1">
-          {(['section', 'flat', 'date'] as const).map(name => (
+          {(['section', 'date'] as const).map(name => (
             <button
               key={name}
               onClick={() => setStrategyName(name)}

@@ -6,7 +6,8 @@ import { apiFetch, API_BASE } from './useApi';
 export interface Tooltip {
   id: string;
   paper_id: string;
-  dom_node_id: string;
+  dom_node_id: string | null;
+  entity_id?: string | null;  // For glossary tooltips (entity-based)
   user_id: string;
   target_text?: string | null;
   content: string;
@@ -30,10 +31,13 @@ export function useTooltips(paperId: string | null) {
   useEffect(() => {
     const map: TooltipMap = {};
     tooltips.forEach(t => {
-      if (!map[t.dom_node_id]) {
-        map[t.dom_node_id] = [];
+      // Only map tooltips that have a dom_node_id (comments, not glossary)
+      if (t.dom_node_id) {
+        if (!map[t.dom_node_id]) {
+          map[t.dom_node_id] = [];
+        }
+        map[t.dom_node_id].push(t);
       }
-      map[t.dom_node_id].push(t);
     });
     setTooltipMap(map);
   }, [tooltips]);
