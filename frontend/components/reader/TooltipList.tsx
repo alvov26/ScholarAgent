@@ -121,62 +121,99 @@ function TooltipCard({ tooltip, onEdit, onDelete, onPin, onNavigate }: TooltipCa
   );
 }
 
-interface GroupContentProps {
-  group: TooltipGroup;
+// Union type for tree nodes: can be either a group or an individual tooltip
+type TreeNode =
+  | { type: 'group'; data: TooltipGroup }
+  | { type: 'tooltip'; data: Tooltip };
+
+// Transform TooltipGroup hierarchy to include tooltips as leaf children
+function convertGroupsToTreeNodes(groups: TooltipGroup[]): TreeNode[] {
+  return groups.map(group => ({
+    type: 'group' as const,
+    data: group,
+  }));
+}
+
+// Get children for a tree node (subsections + tooltips)
+function getTreeNodeChildren(node: TreeNode): TreeNode[] {
+  if (node.type === 'tooltip') {
+    return []; // Tooltips are leaf nodes
+  }
+
+  const group = node.data;
+  const children: TreeNode[] = [];
+
+  // Add subsection groups as children
+  if (group.children && group.children.length > 0) {
+    children.push(...group.children.map(child => ({
+      type: 'group' as const,
+      data: child,
+    })));
+  }
+
+  // Add tooltips as leaf children
+  const sortedTooltips = sortTooltipsByPriority(group.tooltips);
+  children.push(...sortedTooltips.map(tooltip => ({
+    type: 'tooltip' as const,
+    data: tooltip,
+  })));
+
+  return children;
+}
+
+// Calculate total tooltip count including all descendants
+function calculateTotalCount(group: TooltipGroup): number {
+  let count = group.tooltips.length;
+  const countChildren = (children?: TooltipGroup[]) => {
+    if (!children) return;
+    children.forEach(child => {
+      count += child.tooltips.length;
+      countChildren(child.children);
+    });
+  };
+  countChildren(group.children);
+  return count;
+}
+
+interface TreeNodeContentProps {
+  node: TreeNode;
   onEdit?: (tooltip: Tooltip) => void;
   onDelete?: (tooltipId: string) => void;
   onPin?: (tooltipId: string) => void;
   onNavigate?: (domNodeId: string) => void;
-  depth: number;
 }
 
-function GroupContent({ group, onEdit, onDelete, onPin, onNavigate, depth }: GroupContentProps) {
-  const sortedTooltips = useMemo(() => sortTooltipsByPriority(group.tooltips), [group.tooltips]);
+function TreeNodeContent({ node, onEdit, onDelete, onPin, onNavigate }: TreeNodeContentProps) {
+  if (node.type === 'tooltip') {
+    // Render tooltip card with extra spacing
+    return (
+      <div className="mt-2">
+        <TooltipCard
+          tooltip={node.data}
+          onEdit={onEdit}
+          onDelete={onDelete}
+          onPin={onPin}
+          onNavigate={onNavigate}
+        />
+      </div>
+    );
+  }
 
-  // Calculate total tooltip count including children
-  const totalCount = useMemo(() => {
-    let count = group.tooltips.length;
-    const countChildren = (children?: TooltipGroup[]) => {
-      if (!children) return;
-      children.forEach(child => {
-        count += child.tooltips.length;
-        countChildren(child.children);
-      });
-    };
-    countChildren(group.children);
-    return count;
-  }, [group]);
+  // Render group header (no extra spacing)
+  const group = node.data;
+  const totalCount = calculateTotalCount(group);
 
   return (
-    <>
-      {/* Group header */}
-      <div className="w-full flex items-center gap-2 px-2 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded transition-colors">
-        <span
-          className="flex-1 text-left truncate"
-          title={group.title.replace(/<[^>]*>/g, '')}
-          dangerouslySetInnerHTML={{ __html: group.title }}
-        />
-        <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-          {totalCount}
-        </span>
-      </div>
-
-      {/* Tooltip cards for this section */}
-      {sortedTooltips.length > 0 && (
-        <div className="space-y-2 ml-4">
-          {sortedTooltips.map(tooltip => (
-            <TooltipCard
-              key={tooltip.id}
-              tooltip={tooltip}
-              onEdit={onEdit}
-              onDelete={onDelete}
-              onPin={onPin}
-              onNavigate={onNavigate}
-            />
-          ))}
-        </div>
-      )}
-    </>
+    <div className="w-full flex items-center gap-2 px-2 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded transition-colors">
+      <span
+        className="flex-1 text-left truncate"
+        title={group.title.replace(/<[^>]*>/g, '')}
+        dangerouslySetInnerHTML={{ __html: group.title }}
+      />
+      <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+        {totalCount}
+      </span>
+    </div>
   );
 }
 
@@ -206,6 +243,9 @@ export default function TooltipList({
   const groups = useMemo(() => {
     return strategy.group(tooltips, toc);
   }, [strategy, tooltips, toc]);
+
+  // Convert to tree nodes
+  const treeNodes = useMemo(() => convertGroupsToTreeNodes(groups), [groups]);
 
   // Empty state
   if (tooltips.length === 0) {
@@ -246,19 +286,20 @@ export default function TooltipList({
 
       {/* Tooltip groups */}
       <TreeView
-        nodes={groups}
-        renderNode={(group, { depth }) => (
-          <GroupContent
-            group={group}
+        nodes={treeNodes}
+        renderNode={(node) => (
+          <TreeNodeContent
+            node={node}
             onEdit={onEdit}
             onDelete={onDelete}
             onPin={onPin}
             onNavigate={onNavigate}
-            depth={depth}
           />
         )}
-        getNodeId={(group) => group.id}
-        getNodeChildren={(group) => group.children || []}
+        getNodeId={(node) =>
+          node.type === 'group' ? node.data.id : `tooltip-${node.data.id}`
+        }
+        getNodeChildren={getTreeNodeChildren}
         defaultExpanded={true}
       />
     </div>
