@@ -163,7 +163,7 @@ function GroupContent({ group, onEdit, onDelete, onPin, onNavigate, depth }: Gro
 
       {/* Tooltip cards for this section */}
       {sortedTooltips.length > 0 && (
-        <div className="space-y-2 ml-4" style={{ marginLeft: `${(depth + 1) * 12 + 8}px` }}>
+        <div className="space-y-2 ml-4">
           {sortedTooltips.map(tooltip => (
             <TooltipCard
               key={tooltip.id}
