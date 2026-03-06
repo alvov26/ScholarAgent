@@ -101,7 +101,7 @@ export default function ResizableLayout({
         <div className="flex items-center gap-2">
           <button
             onClick={toggleLeftPanel}
-            className="p-1.5 rounded hover:bg-slate-100 transition-colors"
+            className="p-1.5 rounded text-slate-600 hover:text-slate-800 hover:bg-slate-100 transition-colors"
             title={leftCollapsed ? 'Show navigation' : 'Hide navigation'}
           >
             {leftCollapsed ? <Menu size={18} /> : <SidebarClose size={18} />}
@@ -120,7 +120,7 @@ export default function ResizableLayout({
           </button>
           <button
             onClick={toggleRightPanel}
-            className="p-1.5 rounded hover:bg-slate-100 transition-colors"
+            className="p-1.5 rounded text-slate-600 hover:text-slate-800 hover:bg-slate-100 transition-colors"
             title={rightCollapsed ? 'Show tooltips' : 'Hide tooltips'}
           >
             {rightCollapsed ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}

@@ -82,7 +82,7 @@ function TreeNode<T>({
           {hasChildren && (
             <button
               onClick={toggle}
-              className="flex-shrink-0 hover:bg-slate-200 rounded p-0.5 -m-0.5 transition-colors"
+              className="flex-shrink-0 text-slate-600 hover:text-slate-800 hover:bg-slate-200 rounded p-0.5 -m-0.5 transition-colors"
               aria-label={expanded ? 'Collapse' : 'Expand'}
             >
               {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}

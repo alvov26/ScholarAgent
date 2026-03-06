@@ -100,8 +100,8 @@ export function IconButton({
   ...props
 }: IconButtonProps) {
   const variantClasses = {
-    default: 'text-slate-400 hover:text-slate-600',
-    destructive: 'text-slate-400 hover:text-red-600',
+    default: 'text-slate-500 hover:text-slate-700',
+    destructive: 'text-slate-500 hover:text-red-600',
     primary: 'text-indigo-600 hover:text-indigo-700',
   };
 
