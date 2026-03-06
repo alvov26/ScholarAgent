@@ -240,17 +240,17 @@ export function NodeInfoPanel({
             Jump to location in paper
           </button>
           {onFocus && (
-            <Button
+            <button
               onClick={onFocus}
-              icon={Focus}
-              className={
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
                 isFocused
-                  ? 'text-amber-700 bg-amber-50 hover:bg-amber-100'
-                  : 'text-slate-600 bg-slate-100 hover:bg-slate-200'
-              }
+                  ? 'text-amber-700 bg-amber-100 hover:bg-amber-200'
+                  : 'text-amber-700 bg-amber-50 hover:bg-amber-100'
+              }`}
             >
-              {isFocused ? 'Focused' : 'Focus'}
-            </Button>
+              <Focus size={14} />
+              <span>{isFocused ? 'Focused' : 'Focus'}</span>
+            </button>
           )}
         </div>
       </div>
