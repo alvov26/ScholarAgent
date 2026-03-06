@@ -4,15 +4,18 @@ import React from 'react';
 import parse, { Element, domToReact, DOMNode, HTMLReactParserOptions } from 'html-react-parser';
 import { MathJaxNode } from './MathJaxNode';
 import { InteractiveNode } from './InteractiveNode';
+import { ContextMenu } from './ContextMenu';
 import type { Tooltip } from '@/hooks/useTooltips';
 
 interface HTMLRendererProps {
   html: string;
   paperId: string;
   tooltips: Record<string, Tooltip[]>;
+  entityTooltipMap?: Record<string, Tooltip>;
   onTooltipCreate: (domNodeId: string, content: string, targetText?: string) => void;
   onTooltipUpdate: (tooltipId: string, content: string, targetText?: string) => void;
   onTooltipDelete: (tooltipId: string) => void;
+  onTooltipRemoveOccurrence?: (tooltipId: string, domNodeId: string) => void;
   onEntityClick?: (entityId: string) => void;
 }
 
@@ -27,13 +30,23 @@ export function HTMLRenderer({
   html,
   paperId,
   tooltips,
+  entityTooltipMap = {},
   onTooltipCreate,
   onTooltipUpdate,
   onTooltipDelete,
+  onTooltipRemoveOccurrence,
   onEntityClick
 }: HTMLRendererProps) {
   // Counter for generating stable keys for kg-entity spans
   let entitySpanCounter = 0;
+
+  // State for context menu
+  const [contextMenu, setContextMenu] = React.useState<{
+    x: number;
+    y: number;
+    entityId: string;
+    domNodeId: string;
+  } | null>(null);
 
   const options: HTMLReactParserOptions = {
     replace: (domNode) => {
@@ -69,6 +82,30 @@ export function HTMLRenderer({
                 onEntityClick(entityId);
               }
             }}
+            onContextMenu={(e) => {
+              if (!onTooltipRemoveOccurrence) return;
+
+              e.preventDefault();
+              e.stopPropagation();
+
+              // Find the parent element with data-id attribute
+              let parentElement = (e.target as HTMLElement).parentElement;
+              let domNodeId: string | null = null;
+
+              while (parentElement && !domNodeId) {
+                domNodeId = parentElement.getAttribute('data-id');
+                parentElement = parentElement.parentElement;
+              }
+
+              if (domNodeId && entityId) {
+                setContextMenu({
+                  x: e.clientX,
+                  y: e.clientY,
+                  entityId,
+                  domNodeId
+                });
+              }
+            }}
           >
             {domToReact(domNode.children as DOMNode[], options)}
           </span>
@@ -90,6 +127,7 @@ export function HTMLRenderer({
             onTooltipCreate={(content, targetText) => onTooltipCreate(dataId, content, targetText)}
             onTooltipUpdate={onTooltipUpdate}
             onTooltipDelete={onTooltipDelete}
+            onTooltipRemoveOccurrence={onTooltipRemoveOccurrence}
           >
             {domToReact(domNode.children as DOMNode[], options)}
           </InteractiveNode>
@@ -101,8 +139,28 @@ export function HTMLRenderer({
     }
   };
 
+  const handleRemoveOccurrence = React.useCallback(() => {
+    console.log('[HTMLRenderer] handleRemoveOccurrence called', contextMenu);
+    if (contextMenu && onTooltipRemoveOccurrence) {
+      // Find the tooltip ID from the entity ID using entityTooltipMap
+      const tooltip = entityTooltipMap[contextMenu.entityId];
+
+      console.log('[HTMLRenderer] Found tooltip:', tooltip);
+      console.log('[HTMLRenderer] Entity tooltip map:', entityTooltipMap);
+
+      if (tooltip) {
+        console.log('[HTMLRenderer] Calling onTooltipRemoveOccurrence with:', tooltip.id, contextMenu.domNodeId);
+        onTooltipRemoveOccurrence(tooltip.id, contextMenu.domNodeId);
+      } else {
+        console.error('[HTMLRenderer] Could not find tooltip for entity:', contextMenu.entityId);
+      }
+    }
+    setContextMenu(null);
+  }, [contextMenu, entityTooltipMap, onTooltipRemoveOccurrence]);
+
   return (
-    <article className="html-renderer prose prose-slate prose-indigo max-w-none">
+    <>
+      <article className="html-renderer prose prose-slate prose-indigo max-w-none">
       <style jsx global>{`
         .html-renderer {
           line-height: 1.8;
@@ -299,6 +357,16 @@ export function HTMLRenderer({
 
       {parse(html, options)}
     </article>
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          onRemoveOccurrence={handleRemoveOccurrence}
+        />
+      )}
+    </>
   );
 }
 

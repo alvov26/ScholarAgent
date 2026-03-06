@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { MessageSquarePlus, X, Pencil, Trash2 } from 'lucide-react';
 import type { Tooltip } from '@/hooks/useTooltips';
 import { LatexText } from './LatexText';
+import { ContextMenu } from './ContextMenu';
 
 interface InteractiveNodeProps {
   tag: string;
@@ -14,6 +15,7 @@ interface InteractiveNodeProps {
   onTooltipCreate: (content: string, targetText?: string) => void;
   onTooltipUpdate: (tooltipId: string, content: string, targetText?: string) => void;
   onTooltipDelete: (tooltipId: string) => void;
+  onTooltipRemoveOccurrence?: (tooltipId: string, domNodeId: string) => void;
   children: ReactNode;
 }
 
@@ -33,12 +35,14 @@ export function InteractiveNode({
   onTooltipCreate,
   onTooltipUpdate,
   onTooltipDelete,
+  onTooltipRemoveOccurrence,
   children
 }: InteractiveNodeProps) {
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [newTargetText, setNewTargetText] = useState('');
   const [newContent, setNewContent] = useState('');
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; tooltipId: string } | null>(null);
   const nodeRef = useRef<HTMLElement | null>(null);
 
   const handleClick = useCallback((e: React.MouseEvent) => {
@@ -49,6 +53,28 @@ export function InteractiveNode({
     e.stopPropagation();
     setIsPopoverOpen(true);
   }, []);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    // Only show context menu if there are semantic tooltips (with entity_id)
+    const semanticTooltip = tooltips.find(t => t.entity_id);
+    if (!semanticTooltip || !onTooltipRemoveOccurrence) {
+      return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      tooltipId: semanticTooltip.id
+    });
+  }, [tooltips, onTooltipRemoveOccurrence]);
+
+  const handleRemoveOccurrence = useCallback(() => {
+    if (contextMenu && onTooltipRemoveOccurrence) {
+      onTooltipRemoveOccurrence(contextMenu.tooltipId, dataId);
+    }
+  }, [contextMenu, dataId, onTooltipRemoveOccurrence]);
 
   const handleClose = useCallback(() => {
     setIsPopoverOpen(false);
@@ -98,6 +124,7 @@ export function InteractiveNode({
     'data-id': dataId,
     className,
     onClick: handleClick,
+    onContextMenu: handleContextMenu,
     ...(styleObj && { style: styleObj }),
   };
 
@@ -123,6 +150,15 @@ export function InteractiveNode({
           />
         )}
       </AnimatePresence>
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          onRemoveOccurrence={handleRemoveOccurrence}
+        />
+      )}
 
       <style jsx global>{`
         .interactive-node {

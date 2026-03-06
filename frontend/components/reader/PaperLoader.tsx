@@ -90,6 +90,7 @@ export default function PaperLoader() {
     createTooltip,
     updateTooltip,
     deleteTooltip,
+    removeTooltipOccurrence,
   } = useTooltips(selectedPaperId);
 
   // Load papers on mount
@@ -276,6 +277,23 @@ export default function PaperLoader() {
     }
 
     return success;
+  };
+
+  // Handle remove tooltip occurrence with paper reload
+  const handleRemoveTooltipOccurrence = async (tooltipId: string, domNodeId: string) => {
+    console.log('[PaperLoader] handleRemoveTooltipOccurrence called with:', tooltipId, domNodeId);
+    const success = await removeTooltipOccurrence(tooltipId, domNodeId);
+    console.log('[PaperLoader] removeTooltipOccurrence result:', success);
+
+    if (success && selectedPaperId) {
+      // Reload paper to show updated HTML (with span removed)
+      console.log('[PaperLoader] Reloading paper...');
+      const paper = await fetchPaper(selectedPaperId);
+      if (paper) {
+        setCurrentPaper(paper);
+        console.log('[PaperLoader] Paper reloaded successfully');
+      }
+    }
   };
 
   // Handle apply suggestions
@@ -553,9 +571,11 @@ export default function PaperLoader() {
             html={currentPaper.html_content}
             paperId={currentPaper.id}
             tooltips={tooltipMap}
+            entityTooltipMap={entityTooltipMap}
             onTooltipCreate={createTooltip}
             onTooltipUpdate={updateTooltip}
             onTooltipDelete={handleDeleteTooltip}
+            onTooltipRemoveOccurrence={handleRemoveTooltipOccurrence}
             onEntityClick={setActiveEntityId}
           />
         </div>

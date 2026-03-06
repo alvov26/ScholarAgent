@@ -188,6 +188,46 @@ export function useTooltips(paperId: string | null) {
     }
   }, [paperId]);
 
+  const removeTooltipOccurrence = useCallback(async (
+    tooltipId: string,
+    domNodeId: string
+  ): Promise<boolean> => {
+    if (!paperId) {
+      console.log('[useTooltips] No paperId, returning false');
+      return false;
+    }
+
+    console.log('[useTooltips] removeTooltipOccurrence called:', { paperId, tooltipId, domNodeId });
+
+    setLoading(true);
+    setError(null);
+    try {
+      const url = `${API_BASE}/api/papers/${paperId}/tooltips/${tooltipId}/occurrences/${domNodeId}`;
+      console.log('[useTooltips] Fetching URL:', url);
+
+      const response = await fetch(url, { method: 'DELETE' });
+
+      console.log('[useTooltips] Response status:', response.status);
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ detail: 'Remove occurrence failed' }));
+        console.error('[useTooltips] Error response:', err);
+        throw { detail: err.detail, status: response.status };
+      }
+
+      const result = await response.json();
+      console.log('[useTooltips] Success response:', result);
+
+      return true;
+    } catch (err: any) {
+      console.error('[useTooltips] Exception:', err);
+      setError(err.detail || 'Failed to remove tooltip occurrence');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, [paperId]);
+
   return {
     tooltips,
     tooltipMap,
@@ -198,6 +238,7 @@ export function useTooltips(paperId: string | null) {
     createTooltip,
     updateTooltip,
     deleteTooltip,
+    removeTooltipOccurrence,
     clearError: () => setError(null),
   };
 }

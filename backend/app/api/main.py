@@ -552,6 +552,56 @@ async def delete_tooltip(paper_id: str, tooltip_id: str, db: Session = Depends(g
     return {"status": "success", "tooltip_id": tooltip_id}
 
 
+@app.delete("/api/papers/{paper_id}/tooltips/{tooltip_id}/occurrences/{dom_node_id}")
+async def remove_tooltip_occurrence(
+    paper_id: str,
+    tooltip_id: str,
+    dom_node_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Remove a single occurrence of a tooltip span from a specific DOM node.
+
+    This removes only the span within the specified dom_node_id, leaving other
+    occurrences of the same tooltip intact.
+    """
+    tooltip = db.query(Tooltip).filter(
+        Tooltip.id == tooltip_id,
+        Tooltip.paper_id == paper_id
+    ).first()
+
+    if not tooltip:
+        raise HTTPException(status_code=404, detail="Tooltip not found")
+
+    # Only works for semantic tooltips with entity_id
+    if not tooltip.entity_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Can only remove occurrences from semantic tooltips (with entity_id)"
+        )
+
+    from backend.app.compiler.html_injection import remove_single_tooltip_span
+
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper or not paper.html_content:
+        raise HTTPException(status_code=404, detail="Paper HTML not found")
+
+    print(f"[Remove Occurrence] Removing span for entity {tooltip.entity_id} from node {dom_node_id}")
+    modified_html = remove_single_tooltip_span(
+        paper.html_content,
+        tooltip.entity_id,
+        dom_node_id
+    )
+    paper.html_content = modified_html
+    db.commit()
+
+    return {
+        "status": "success",
+        "tooltip_id": tooltip_id,
+        "dom_node_id": dom_node_id
+    }
+
+
 @app.post("/api/papers/{paper_id}/tooltips/suggest", response_model=TooltipSuggestionResponse)
 async def suggest_tooltips_endpoint(
     paper_id: str,

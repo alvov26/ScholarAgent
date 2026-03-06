@@ -3,6 +3,7 @@ HTML Span Utilities for Semantic Tooltips
 
 Provides utility functions for managing tooltip spans in compiled HTML:
 - remove_tooltip_spans: Remove spans for a specific entity
+- remove_single_tooltip_span: Remove a specific span occurrence by dom_node_id
 - validate_html_integrity: Validate HTML structure after modification
 
 Note: Span injection is now handled by ai_html_injection.py using LLM-based approach.
@@ -37,6 +38,46 @@ def remove_tooltip_spans(html: str, entity_id: str) -> str:
             span.unwrap()
         except Exception as e:
             print(f"Warning: Failed to unwrap span for entity {entity_id}: {e}")
+            # If unwrap fails, try to at least remove the span and keep its text
+            if span.parent:
+                span.replace_with(span.get_text())
+
+    return soup.decode(formatter='html')
+
+
+def remove_single_tooltip_span(html: str, entity_id: str, dom_node_id: str) -> str:
+    """
+    Remove a single <span class="kg-entity"> tag with specific entity_id and dom_node_id.
+
+    This unwraps only the span that matches both the entity_id and is within the
+    specified DOM node, leaving other occurrences intact.
+
+    Args:
+        html: The HTML containing tooltip spans
+        entity_id: The entity ID to remove (matches data-entity-id attribute)
+        dom_node_id: The parent node ID containing the span to remove
+
+    Returns:
+        Modified HTML with the specific span removed
+    """
+    soup = BeautifulSoup(html, 'html.parser')
+
+    # Find the parent node with the specified data-id
+    parent_node = soup.find(attrs={'data-id': dom_node_id})
+
+    if not parent_node:
+        print(f"Warning: Could not find parent node with data-id={dom_node_id}")
+        return html
+
+    # Find kg-entity spans with matching entity_id within this parent
+    spans = parent_node.find_all('span', class_='kg-entity', attrs={'data-entity-id': entity_id})
+
+    for span in spans:
+        try:
+            # Replace span with its text content
+            span.unwrap()
+        except Exception as e:
+            print(f"Warning: Failed to unwrap span for entity {entity_id} in node {dom_node_id}: {e}")
             # If unwrap fails, try to at least remove the span and keep its text
             if span.parent:
                 span.replace_with(span.get_text())
