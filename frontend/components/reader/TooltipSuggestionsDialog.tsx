@@ -6,6 +6,10 @@ import { LatexText } from './LatexText';
 import { Button, IconButton, CollapsibleSection } from '@/components/ui';
 import { componentStyles, textStyles } from '@/lib/design-system';
 
+interface CollapsibleGroupState {
+  [key: string]: boolean;
+}
+
 export interface StoredSuggestion {
   id: string;
   entity_id?: string;
@@ -39,6 +43,7 @@ export default function TooltipSuggestionsDialog({
   const [applying, setApplying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [topGroupExpanded, setTopGroupExpanded] = useState<CollapsibleGroupState>({ manual: true, ai: true });
 
   // Manual suggestion form state
   const [formCollapsed, setFormCollapsed] = useState(false);
@@ -61,8 +66,10 @@ export default function TooltipSuggestionsDialog({
       if (response.ok) {
         const data = await response.json();
         setSuggestions(data);
-        // Select all by default
-        setSelectedIds(new Set(data.map((s: StoredSuggestion) => s.id)));
+        // Default: select only manual tooltips, not AI-generated ones
+        setSelectedIds(new Set(
+          data.filter((s: StoredSuggestion) => !s.is_ai_generated).map((s: StoredSuggestion) => s.id)
+        ));
       }
     } catch (error) {
       console.error('Failed to load suggestions:', error);
@@ -128,8 +135,21 @@ export default function TooltipSuggestionsDialog({
     }
   };
 
-  // Separate manual and AI suggestions
-  const { manualSuggestions, aiSuggestions } = useMemo(() => {
+  // Hierarchical grouping structure
+  interface EntityGroup {
+    type: string;
+    label: string;
+    suggestions: StoredSuggestion[];
+  }
+
+  interface TopLevelGroup {
+    id: 'manual' | 'ai';
+    label: string;
+    entityGroups: EntityGroup[];
+  }
+
+  // Group suggestions hierarchically: Manual/AI -> Entity Type
+  const hierarchicalGroups = useMemo((): TopLevelGroup[] => {
     const manual: StoredSuggestion[] = [];
     const ai: StoredSuggestion[] = [];
 
@@ -141,7 +161,47 @@ export default function TooltipSuggestionsDialog({
       }
     });
 
-    return { manualSuggestions: manual, aiSuggestions: ai };
+    const groupByEntityType = (suggs: StoredSuggestion[]): EntityGroup[] => {
+      const typeMap = new Map<string, StoredSuggestion[]>();
+
+      suggs.forEach(s => {
+        const type = s.entity_type.toLowerCase();
+        if (!typeMap.has(type)) {
+          typeMap.set(type, []);
+        }
+        typeMap.get(type)!.push(s);
+      });
+
+      // Order: definition, theorem, symbol, other, then alphabetically
+      const typeOrder = ['definition', 'theorem', 'symbol', 'other'];
+      const sortedTypes = Array.from(typeMap.keys()).sort((a, b) => {
+        const aIdx = typeOrder.indexOf(a);
+        const bIdx = typeOrder.indexOf(b);
+        if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+        if (aIdx !== -1) return -1;
+        if (bIdx !== -1) return 1;
+        return a.localeCompare(b);
+      });
+
+      return sortedTypes.map(type => ({
+        type,
+        label: type.charAt(0).toUpperCase() + type.slice(1),
+        suggestions: typeMap.get(type)!,
+      }));
+    };
+
+    return [
+      {
+        id: 'manual',
+        label: 'Manual Tooltips',
+        entityGroups: groupByEntityType(manual),
+      },
+      {
+        id: 'ai',
+        label: 'AI Suggestions',
+        entityGroups: groupByEntityType(ai),
+      },
+    ];
   }, [suggestions]);
 
   if (!isOpen) return null;
@@ -154,6 +214,54 @@ export default function TooltipSuggestionsDialog({
       newSelected.add(suggestionId);
     }
     setSelectedIds(newSelected);
+  };
+
+  // Toggle all suggestions in an entity group
+  const handleToggleEntityGroup = (group: EntityGroup) => {
+    const groupIds = group.suggestions.map(s => s.id);
+    const allSelected = groupIds.every(id => selectedIds.has(id));
+
+    const newSelected = new Set(selectedIds);
+    if (allSelected) {
+      groupIds.forEach(id => newSelected.delete(id));
+    } else {
+      groupIds.forEach(id => newSelected.add(id));
+    }
+    setSelectedIds(newSelected);
+  };
+
+  // Toggle all suggestions in a top-level group (manual/AI)
+  const handleToggleTopLevelGroup = (group: TopLevelGroup) => {
+    const allIds = group.entityGroups.flatMap(eg => eg.suggestions.map(s => s.id));
+    const allSelected = allIds.every(id => selectedIds.has(id));
+
+    const newSelected = new Set(selectedIds);
+    if (allSelected) {
+      allIds.forEach(id => newSelected.delete(id));
+    } else {
+      allIds.forEach(id => newSelected.add(id));
+    }
+    setSelectedIds(newSelected);
+  };
+
+  // Check if entity group is fully/partially selected
+  const getEntityGroupCheckState = (group: EntityGroup): 'checked' | 'unchecked' | 'indeterminate' => {
+    const groupIds = group.suggestions.map(s => s.id);
+    const selectedCount = groupIds.filter(id => selectedIds.has(id)).length;
+
+    if (selectedCount === 0) return 'unchecked';
+    if (selectedCount === groupIds.length) return 'checked';
+    return 'indeterminate';
+  };
+
+  // Check if top-level group is fully/partially selected
+  const getTopLevelCheckState = (group: TopLevelGroup): 'checked' | 'unchecked' | 'indeterminate' => {
+    const allIds = group.entityGroups.flatMap(eg => eg.suggestions.map(s => s.id));
+    const selectedCount = allIds.filter(id => selectedIds.has(id)).length;
+
+    if (selectedCount === 0) return 'unchecked';
+    if (selectedCount === allIds.length) return 'checked';
+    return 'indeterminate';
   };
 
   const handleToggleExpand = (suggestionId: string) => {
@@ -279,7 +387,8 @@ export default function TooltipSuggestionsDialog({
               Tooltip Suggestions
             </h2>
             <p className="text-sm text-slate-600 mt-1">
-              {manualSuggestions.length} manual, {aiSuggestions.length} AI-generated
+              {hierarchicalGroups[0].entityGroups.reduce((sum, eg) => sum + eg.suggestions.length, 0)} manual,{' '}
+              {hierarchicalGroups[1].entityGroups.reduce((sum, eg) => sum + eg.suggestions.length, 0)} AI-generated
             </p>
           </div>
           <IconButton icon={X} onClick={onClose} label="Close" />
@@ -365,76 +474,124 @@ export default function TooltipSuggestionsDialog({
                 <Loader2 className="animate-spin text-indigo-600" size={32} />
               </div>
             ) : (
-              <>
-                {/* Manual Tooltips */}
-                {manualSuggestions.length > 0 && (
-                  <div className="mb-6">
-                    <h3 className="text-xs font-semibold text-slate-500 mb-3 uppercase tracking-wider">
-                      Manual Tooltips ({manualSuggestions.length})
-                    </h3>
-                    <div className="space-y-2">
-                      {manualSuggestions.map(renderSuggestion)}
-                    </div>
-                  </div>
-                )}
+              <div className="space-y-4">
+                {hierarchicalGroups.map(topGroup => {
+                  const totalCount = topGroup.entityGroups.reduce((sum, eg) => sum + eg.suggestions.length, 0);
+                  if (totalCount === 0 && topGroup.id === 'manual') return null;
 
-                {/* AI Suggestions Section */}
-                {aiSuggestions.length > 0 && (
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                        AI Suggestions ({aiSuggestions.length})
-                      </h3>
-                      <button
-                        onClick={handleRegenerateAI}
-                        disabled={!hasKnowledgeGraph || regenerating}
-                        className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {regenerating ? (
-                          <>
-                            <Loader2 size={12} className="animate-spin" />
-                            Regenerating...
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles size={12} />
-                            Regenerate
-                          </>
-                        )}
-                      </button>
-                    </div>
-                    <div className="space-y-2">
-                      {aiSuggestions.map(renderSuggestion)}
-                    </div>
-                  </div>
-                )}
+                  const topCheckState = getTopLevelCheckState(topGroup);
 
-                {/* Empty state for AI suggestions */}
-                {aiSuggestions.length === 0 && (
-                  <div className="mb-6">
-                    <h3 className="text-xs font-semibold text-slate-500 mb-3 uppercase tracking-wider">
-                      AI Suggestions (0)
-                    </h3>
-                    <div className="text-sm text-slate-500 text-center py-8 bg-slate-50 rounded-lg border border-slate-200">
-                      {hasKnowledgeGraph ? (
-                        <div>
-                          <p className="mb-2">No AI suggestions yet.</p>
+                  return (
+                    <div key={topGroup.id} className="space-y-2">
+                      {/* Top-level header with chevron, checkbox and regenerate button */}
+                      <div className="flex items-center gap-2 px-2">
+                        <button
+                          onClick={() => setTopGroupExpanded({ ...topGroupExpanded, [topGroup.id]: !topGroupExpanded[topGroup.id] })}
+                          className="flex-shrink-0 text-slate-600 hover:text-slate-800 hover:bg-slate-200 rounded p-0.5 -m-0.5 transition-colors"
+                        >
+                          {topGroupExpanded[topGroup.id] ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                        </button>
+                        <input
+                          type="checkbox"
+                          checked={topCheckState === 'checked'}
+                          ref={input => {
+                            if (input) input.indeterminate = topCheckState === 'indeterminate';
+                          }}
+                          onChange={() => handleToggleTopLevelGroup(topGroup)}
+                          className="h-4 w-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                        />
+                        <span className="text-sm font-semibold text-slate-600 uppercase tracking-wide">
+                          {topGroup.label} ({totalCount})
+                        </span>
+                        {topGroup.id === 'ai' && totalCount > 0 && (
                           <button
                             onClick={handleRegenerateAI}
-                            disabled={regenerating}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50"
+                            disabled={!hasKnowledgeGraph || regenerating}
+                            className="ml-auto flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            <Sparkles size={12} />
-                            Generate AI Suggestions
+                            {regenerating ? (
+                              <>
+                                <Loader2 size={12} className="animate-spin" />
+                                Regenerating...
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles size={12} />
+                                Regenerate
+                              </>
+                            )}
                           </button>
+                        )}
+                      </div>
+
+                      {/* Collapsible content */}
+                      {topGroupExpanded[topGroup.id] && (
+                        <div>
+                      {/* Entity Type Groups */}
+                      {totalCount > 0 ? (
+                        <div className="space-y-3 mt-2 ml-6">
+                          {topGroup.entityGroups.map(entityGroup => {
+                            if (entityGroup.suggestions.length === 0) return null;
+
+                            const entityCheckState = getEntityGroupCheckState(entityGroup);
+
+                            return (
+                              <CollapsibleSection
+                                key={`${topGroup.id}-${entityGroup.type}`}
+                                title={
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={entityCheckState === 'checked'}
+                                      ref={input => {
+                                        if (input) input.indeterminate = entityCheckState === 'indeterminate';
+                                      }}
+                                      onChange={(e) => {
+                                        e.stopPropagation();
+                                        handleToggleEntityGroup(entityGroup);
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="h-4 w-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                                    />
+                                    <span className="text-sm font-semibold text-slate-600">
+                                      {entityGroup.label} ({entityGroup.suggestions.length})
+                                    </span>
+                                  </div>
+                                }
+                                defaultOpen={true}
+                              >
+                                <div className="space-y-2 mt-2 ml-6">
+                                  {entityGroup.suggestions.map(renderSuggestion)}
+                                </div>
+                              </CollapsibleSection>
+                            );
+                          })}
                         </div>
-                      ) : (
-                        'Build a knowledge graph first to enable AI suggestions.'
+                      ) : topGroup.id === 'ai' ? (
+                        <div className="text-sm text-slate-500 text-center py-8 bg-slate-50 rounded-lg border border-slate-200 mt-2 ml-6">
+                          {hasKnowledgeGraph ? (
+                            <div>
+                              <p className="mb-2">No AI suggestions yet.</p>
+                              <button
+                                onClick={handleRegenerateAI}
+                                disabled={regenerating}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50"
+                              >
+                                <Sparkles size={12} />
+                                Generate AI Suggestions
+                              </button>
+                            </div>
+                          ) : (
+                            'Build a knowledge graph first to enable AI suggestions.'
+                          )}
+                        </div>
+                      ) : null}
+                        </div>
                       )}
                     </div>
-                  </div>
-                )}
-              </>
+                  );
+                })}
+              </div>
             )}
           </div>
         </div>
