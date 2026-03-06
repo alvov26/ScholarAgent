@@ -27,9 +27,12 @@ declare global {
  *
  * Uses MathJax (same as the main paper rendering) for proper support of
  * \mathbb, \mathcal, and other LaTeX commands.
+ *
+ * Note: Renders as a <span> by default to support inline usage (e.g., within <p> tags).
+ * If className includes 'block', it will render as a <div>.
  */
 export function LatexText({ text, className = '' }: LatexTextProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,9 +87,9 @@ export function LatexText({ text, className = '' }: LatexTextProps) {
     .replace(/\$\$DISPLAY\$\$/g, '$$');
 
   return (
-    <div ref={containerRef} className={className}>
+    <span ref={containerRef} className={className}>
       {convertedText}
-    </div>
+    </span>
   );
 }
 

@@ -8,6 +8,7 @@ import ResizableLayout from "./ResizableLayout";
 import NavigationPanel from "./NavigationPanel";
 import TooltipPanel from "./TooltipPanel";
 import TooltipSuggestionsDialog, { StoredSuggestion } from "./TooltipSuggestionsDialog";
+import TooltipEditModal from "./TooltipEditModal";
 import SearchBar from "./SearchBar";
 import { parseTOC, TOCNode } from "@/utils/parseTOC";
 import { Loader2, Upload, ExternalLink, Trash2, RefreshCw, FileText, AlertCircle, Network } from "lucide-react";
@@ -65,6 +66,10 @@ export default function PaperLoader() {
   // Tooltip suggestion state
   const [showSuggestionDialog, setShowSuggestionDialog] = useState(false);
   const [userExpertise, setUserExpertise] = useState<string>("");
+
+  // Tooltip edit state
+  const [editingTooltip, setEditingTooltip] = useState<any | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
 
   // Search state
   const [showSearch, setShowSearch] = useState(false);
@@ -359,12 +364,15 @@ export default function PaperLoader() {
 
   // Handle tooltip edit from panel
   const handleTooltipEdit = useCallback((tooltip: any) => {
-    // TODO: Open edit modal/form
-    // For now, use a simple prompt
-    const newContent = prompt('Edit tooltip content:', tooltip.content);
-    if (newContent !== null && newContent.trim()) {
-      updateTooltip(tooltip.id, newContent.trim(), tooltip.target_text);
-    }
+    setEditingTooltip(tooltip);
+    setShowEditModal(true);
+  }, []);
+
+  // Handle saving edited tooltip
+  const handleSaveEdit = useCallback((tooltipId: string, newContent: string, targetText?: string) => {
+    updateTooltip(tooltipId, newContent, targetText);
+    setShowEditModal(false);
+    setEditingTooltip(null);
   }, [updateTooltip]);
 
   // Handle tooltip pin/unpin
@@ -620,6 +628,17 @@ export default function PaperLoader() {
           onRegenerateAI={handleRegenerateAI}
         />
       )}
+
+      {/* Tooltip Edit Modal */}
+      <TooltipEditModal
+        isOpen={showEditModal}
+        tooltip={editingTooltip}
+        onClose={() => {
+          setShowEditModal(false);
+          setEditingTooltip(null);
+        }}
+        onSave={handleSaveEdit}
+      />
 
       {/* Search Bar */}
       <SearchBar isOpen={showSearch} onClose={() => setShowSearch(false)} />
