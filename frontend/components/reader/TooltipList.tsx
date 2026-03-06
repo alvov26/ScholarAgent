@@ -204,7 +204,10 @@ function TreeNodeContent({ node, onEdit, onDelete, onPin, onNavigate }: TreeNode
   const totalCount = calculateTotalCount(group);
 
   return (
-    <div className="w-full flex items-center gap-2 px-2 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded transition-colors">
+    <button
+      className="w-full flex items-center gap-2 px-2 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded transition-colors cursor-pointer"
+      onClick={() => onNavigate?.(group.id)}
+    >
       <span
         className="flex-1 text-left truncate"
         title={group.title.replace(/<[^>]*>/g, '')}
@@ -213,7 +216,7 @@ function TreeNodeContent({ node, onEdit, onDelete, onPin, onNavigate }: TreeNode
       <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
         {totalCount}
       </span>
-    </div>
+    </button>
   );
 }
 
