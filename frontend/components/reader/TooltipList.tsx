@@ -242,7 +242,7 @@ export default function TooltipList({
         icon={FileText}
         title="No comments yet"
         description='Click on a paragraph and choose "Add Annotation"'
-        variant="card"
+        variant="sidebar"
       />
     );
   }

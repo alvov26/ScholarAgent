@@ -23,6 +23,7 @@ import { KnowledgeGraphProgress } from './KnowledgeGraphProgress';
 import { EdgeInfoPanel } from './EdgeInfoPanel';
 import { NodeInfoPanel, ConnectionInfo } from './NodeInfoPanel';
 import { Loader2, AlertCircle, Network, Search, X, Focus, Maximize2, Filter, ChevronDown } from 'lucide-react';
+import { EmptyState } from '@/components/ui';
 
 // Custom node types
 const nodeTypes = {
@@ -665,13 +666,12 @@ function KnowledgeGraphViewInner({ paperId, onNavigate, onRegisterFocusHandler }
   // Error state - graph not built yet
   if (error === 'not_built') {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-3 p-6 text-center">
-        <Network size={32} className="text-slate-300" />
-        <p className="text-sm font-medium">Knowledge graph not built yet</p>
-        <p className="text-xs text-slate-400">
-          Use the &quot;Build Graph&quot; button to extract concepts and relationships from this paper.
-        </p>
-      </div>
+      <EmptyState
+        icon={Network}
+        title="Knowledge graph not built yet"
+        description='Use the "Build Graph" button to extract concepts and relationships from this paper.'
+        variant="sidebar"
+      />
     );
   }
 
@@ -688,10 +688,11 @@ function KnowledgeGraphViewInner({ paperId, onNavigate, onRegisterFocusHandler }
   // Empty state
   if (nodes.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-3 p-4">
-        <Network size={32} className="text-slate-300" />
-        <span className="text-sm">No entities extracted</span>
-      </div>
+      <EmptyState
+        icon={Network}
+        title="No entities extracted"
+        variant="sidebar"
+      />
     );
   }
 

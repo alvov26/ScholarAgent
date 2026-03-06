@@ -28,20 +28,14 @@ export function EmptyState({
   icon: Icon,
   title,
   description,
-  variant = 'card',
+  variant = 'sidebar',
   action,
 }: EmptyStateProps) {
-  // Different layouts for different contexts
-  const containerClasses =
-    variant === 'sidebar'
-      ? 'flex flex-col items-center justify-center h-full text-center p-6 gap-3'
-      : 'bg-slate-50 rounded-lg border border-slate-200 p-6 text-center';
-
-  const iconSize = variant === 'sidebar' ? 32 : 32;
-
-  return (
-    <div className={containerClasses}>
-      <Icon size={iconSize} className="text-slate-300" />
+  // Both variants use the same centered layout now
+  // The only difference is 'card' adds a background card container
+  const innerContent = (
+    <>
+      <Icon size={32} className="text-slate-300" />
       <div className="space-y-1">
         <p className="text-sm font-medium text-slate-500">{title}</p>
         {description && (
@@ -49,6 +43,23 @@ export function EmptyState({
         )}
       </div>
       {action && <div className="mt-2">{action}</div>}
+    </>
+  );
+
+  if (variant === 'card') {
+    return (
+      <div className="bg-slate-50 rounded-lg border border-slate-200 p-6">
+        <div className="flex flex-col items-center justify-center text-center gap-3">
+          {innerContent}
+        </div>
+      </div>
+    );
+  }
+
+  // Sidebar variant - centered in full height
+  return (
+    <div className="flex flex-col items-center justify-center h-full text-center p-6 gap-3">
+      {innerContent}
     </div>
   );
 }

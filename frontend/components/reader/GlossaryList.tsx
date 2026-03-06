@@ -198,7 +198,7 @@ export default function GlossaryList({
         icon={Sparkles}
         title="No glossary entries yet"
         description='Use "Add Tooltips" to create term definitions'
-        variant="card"
+        variant="sidebar"
       />
     );
   }
