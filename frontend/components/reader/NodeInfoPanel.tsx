@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { X, Variable, BookOpen, Lightbulb, Focus, ChevronRight, ChevronDown } from 'lucide-react';
 import { LatexText } from './LatexText';
+import { Button, IconButton, CollapsibleSection } from '@/components/ui';
+import { colors, textStyles } from '@/lib/design-system';
 
 export interface ConnectionInfo {
   nodeId: string;
@@ -27,41 +29,41 @@ interface NodeInfoPanelProps {
   onConnectionClick?: (nodeId: string) => void;
 }
 
-// Node styling config matching GraphNode
+// Node styling config matching GraphNode - using design system colors
 const nodeConfig = {
   symbol: {
-    bgColor: 'bg-blue-50',
-    borderColor: 'border-blue-300',
-    textColor: 'text-blue-700',
+    bgColor: colors.entity.symbol.bg,
+    borderColor: colors.entity.symbol.border,
+    textColor: colors.entity.symbol.text,
     icon: Variable,
-    iconColor: 'text-blue-500',
+    iconColor: colors.entity.symbol.icon,
     label: 'Symbol',
   },
   definition: {
-    bgColor: 'bg-emerald-50',
-    borderColor: 'border-emerald-300',
-    textColor: 'text-emerald-700',
+    bgColor: colors.entity.definition.bg,
+    borderColor: colors.entity.definition.border,
+    textColor: colors.entity.definition.text,
     icon: BookOpen,
-    iconColor: 'text-emerald-500',
+    iconColor: colors.entity.definition.icon,
     label: 'Definition',
   },
   theorem: {
-    bgColor: 'bg-violet-50',
-    borderColor: 'border-violet-300',
-    textColor: 'text-violet-700',
+    bgColor: colors.entity.theorem.bg,
+    borderColor: colors.entity.theorem.border,
+    textColor: colors.entity.theorem.text,
     icon: Lightbulb,
-    iconColor: 'text-violet-500',
+    iconColor: colors.entity.theorem.icon,
     label: 'Theorem',
   },
 };
 
-// Relationship type colors
+// Relationship type colors - using design system
 const relationshipColors: Record<string, string> = {
-  uses: 'text-indigo-600',
-  depends_on: 'text-amber-600',
-  defines: 'text-emerald-600',
-  extends: 'text-violet-600',
-  mentions: 'text-slate-500',
+  uses: colors.relationship.uses.text,
+  depends_on: colors.relationship.depends_on.text,
+  defines: colors.relationship.defines.text,
+  extends: colors.relationship.extends.text,
+  mentions: colors.relationship.mentions.text,
 };
 
 // Group connections by relationship type
@@ -122,13 +124,7 @@ export function NodeInfoPanel({
             )}
           </h3>
         </div>
-        <button
-          onClick={onClose}
-          className="ml-2 p-1 hover:bg-white/50 rounded transition-colors"
-          aria-label="Close"
-        >
-          <X size={16} className="text-slate-500" />
-        </button>
+        <IconButton icon={X} onClick={onClose} label="Close" />
       </div>
 
       {/* Content */}
@@ -136,7 +132,7 @@ export function NodeInfoPanel({
         {/* Main content (definition/statement/context) */}
         {mainContent && (
           <div>
-            <div className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">
+            <div className={textStyles.sectionHeader + ' mb-2'}>
               {definition ? 'Definition' : statement ? 'Statement' : 'Context'}
             </div>
             <div className="text-sm text-slate-700 leading-relaxed">
@@ -148,7 +144,7 @@ export function NodeInfoPanel({
         {/* Additional context for symbols */}
         {nodeType === 'symbol' && context && definition && (
           <div>
-            <div className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">
+            <div className={textStyles.sectionHeader + ' mb-2'}>
               Additional Context
             </div>
             <div className="text-sm text-slate-700 leading-relaxed">
@@ -244,18 +240,17 @@ export function NodeInfoPanel({
             Jump to location in paper
           </button>
           {onFocus && (
-            <button
+            <Button
               onClick={onFocus}
-              className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
+              icon={Focus}
+              className={
                 isFocused
                   ? 'text-amber-700 bg-amber-50 hover:bg-amber-100'
                   : 'text-slate-600 bg-slate-100 hover:bg-slate-200'
-              }`}
-              title={isFocused ? 'Currently focused' : 'Focus on this node'}
+              }
             >
-              <Focus size={14} />
               {isFocused ? 'Focused' : 'Focus'}
-            </button>
+            </Button>
           )}
         </div>
       </div>

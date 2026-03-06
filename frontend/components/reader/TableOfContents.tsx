@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { ChevronRight, ChevronDown, FileText } from 'lucide-react';
 import type { TOCNode } from '@/utils/parseTOC';
+import { EmptyState } from '@/components/ui';
 
 // Extend Window interface for MathJax
 declare global {
@@ -118,13 +119,12 @@ export default function TableOfContents({
 }: TableOfContentsProps) {
   if (nodes.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-3 p-6 text-center">
-        <FileText size={32} className="text-slate-300" />
-        <p className="text-sm font-medium">No table of contents available</p>
-        <p className="text-xs text-slate-400">
-          Compile a paper with sections to see the outline.
-        </p>
-      </div>
+      <EmptyState
+        icon={FileText}
+        title="No table of contents available"
+        description="Compile a paper with sections to see the outline."
+        variant="sidebar"
+      />
     );
   }
 

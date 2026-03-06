@@ -62,18 +62,23 @@ export function Button({
       disabled={disabled || loading}
       {...props}
     >
-      {loading ? (
+      {loading && children ? (
+        <>
+          <Loader2 size={iconSize} className="animate-spin" />
+          <span>{children}</span>
+        </>
+      ) : loading ? (
         <Loader2 size={iconSize} className="animate-spin" />
-      ) : Icon && !children ? (
-        <Icon size={iconSize} />
-      ) : null}
-      {Icon && children && (
+      ) : Icon && children ? (
         <>
           <Icon size={iconSize} />
-          {children}
+          <span>{children}</span>
         </>
+      ) : Icon ? (
+        <Icon size={iconSize} />
+      ) : (
+        children
       )}
-      {!Icon && children}
     </button>
   );
 }

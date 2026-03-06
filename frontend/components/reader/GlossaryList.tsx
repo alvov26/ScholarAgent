@@ -4,6 +4,8 @@ import { useState, useMemo } from 'react';
 import { ChevronRight, ChevronDown, Edit2, Trash2, Sparkles, User as UserIcon } from 'lucide-react';
 import type { Tooltip } from '@/hooks/useTooltips';
 import { LatexText } from './LatexText';
+import { EmptyState, CollapsibleSection, IconButton } from '@/components/ui';
+import { componentStyles } from '@/lib/design-system';
 
 interface GlossaryListProps {
   tooltips: Tooltip[];
@@ -21,7 +23,7 @@ function GlossaryCard({ tooltip, onEdit, onDelete }: GlossaryCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-2 hover:border-slate-300 transition-colors">
+    <div className={componentStyles.card.padded + ' space-y-2'}>
       {/* Header with term and controls */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
@@ -32,13 +34,11 @@ function GlossaryCard({ tooltip, onEdit, onDelete }: GlossaryCardProps) {
           )}
         </div>
 
-        <button
+        <IconButton
+          icon={expanded ? ChevronDown : ChevronRight}
           onClick={() => setExpanded(!expanded)}
-          className="p-1 rounded hover:bg-slate-100 transition-colors text-slate-400 flex-shrink-0"
-          title={expanded ? 'Collapse' : 'Expand'}
-        >
-          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        </button>
+          label={expanded ? 'Collapse' : 'Expand'}
+        />
       </div>
 
       {/* Content preview (when collapsed) */}
@@ -56,7 +56,7 @@ function GlossaryCard({ tooltip, onEdit, onDelete }: GlossaryCardProps) {
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-2 pt-2 border-t">
+          <div className="flex items-center gap-2 pt-2 border-t border-slate-200">
             <button
               onClick={() => onEdit?.(tooltip)}
               className="flex items-center gap-1 px-2 py-1 text-xs text-slate-600 hover:text-indigo-600 hover:bg-slate-50 rounded transition-colors"
@@ -95,38 +95,26 @@ interface GroupSectionProps {
 }
 
 function GroupSection({ group, onEdit, onDelete }: GroupSectionProps) {
-  const [collapsed, setCollapsed] = useState(false);
+  const icon = group.isUserCreated ? UserIcon : Sparkles;
 
   return (
-    <div className="space-y-2">
-      {/* Group header */}
-      <button
-        onClick={() => setCollapsed(!collapsed)}
-        className="w-full flex items-center gap-2 px-2 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded transition-colors"
-      >
-        {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-        {group.isUserCreated && <UserIcon size={14} className="text-indigo-600" />}
-        {!group.isUserCreated && <Sparkles size={14} className="text-indigo-600" />}
-        <span className="flex-1 text-left">{group.label}</span>
-        <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-          {group.tooltips.length}
-        </span>
-      </button>
-
-      {/* Content when expanded */}
-      {!collapsed && (
-        <div className="space-y-2 ml-4">
-          {group.tooltips.map(tooltip => (
-            <GlossaryCard
-              key={tooltip.id}
-              tooltip={tooltip}
-              onEdit={onEdit}
-              onDelete={onDelete}
-            />
-          ))}
-        </div>
-      )}
-    </div>
+    <CollapsibleSection
+      title={group.label}
+      icon={icon}
+      badge={group.tooltips.length}
+      defaultExpanded={true}
+    >
+      <div className="space-y-2 ml-4">
+        {group.tooltips.map(tooltip => (
+          <GlossaryCard
+            key={tooltip.id}
+            tooltip={tooltip}
+            onEdit={onEdit}
+            onDelete={onDelete}
+          />
+        ))}
+      </div>
+    </CollapsibleSection>
   );
 }
 
@@ -206,13 +194,12 @@ export default function GlossaryList({
   // Empty state
   if (tooltips.length === 0) {
     return (
-      <div className="bg-slate-50 rounded-lg border border-slate-200 p-6 text-center">
-        <Sparkles size={32} className="mx-auto text-slate-300 mb-2" />
-        <p className="text-sm text-slate-500">No glossary entries yet</p>
-        <p className="text-xs text-slate-400 mt-1">
-          Use "Add Tooltips" to create term definitions
-        </p>
-      </div>
+      <EmptyState
+        icon={Sparkles}
+        title="No glossary entries yet"
+        description='Use "Add Tooltips" to create term definitions'
+        variant="card"
+      />
     );
   }
 

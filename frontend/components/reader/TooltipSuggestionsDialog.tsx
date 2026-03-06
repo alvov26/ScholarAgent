@@ -3,6 +3,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { X, Check, ChevronDown, ChevronRight, Sparkles, Loader2, Plus, Trash2 } from 'lucide-react';
 import { LatexText } from './LatexText';
+import { Button, IconButton, CollapsibleSection } from '@/components/ui';
+import { componentStyles, textStyles } from '@/lib/design-system';
 
 export interface StoredSuggestion {
   id: string;
@@ -196,10 +198,7 @@ export default function TooltipSuggestionsDialog({
     return (
       <div
         key={suggestion.id}
-        className={`
-          border rounded-lg transition-all
-          ${isSelected ? 'border-indigo-300 bg-indigo-50/30' : 'border-slate-200 bg-white'}
-        `}
+        className={isSelected ? componentStyles.card.selected : componentStyles.card.default}
       >
         {/* Header */}
         <div className="flex items-start gap-3 p-3">
@@ -225,19 +224,18 @@ export default function TooltipSuggestionsDialog({
 
               <div className="flex items-center gap-1 flex-shrink-0">
                 {/* Expand/Collapse */}
-                <button
+                <IconButton
+                  icon={isExpanded ? ChevronDown : ChevronRight}
                   onClick={() => handleToggleExpand(suggestion.id)}
-                  className="text-slate-400 hover:text-slate-600 transition-colors"
-                >
-                  {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                </button>
+                  label={isExpanded ? 'Collapse' : 'Expand'}
+                />
                 {/* Delete */}
-                <button
+                <IconButton
+                  icon={Trash2}
                   onClick={() => handleDeleteSuggestion(suggestion.id)}
-                  className="text-slate-400 hover:text-red-600 transition-colors"
-                >
-                  <Trash2 size={16} />
-                </button>
+                  label="Delete"
+                  variant="destructive"
+                />
               </div>
             </div>
 
@@ -261,7 +259,7 @@ export default function TooltipSuggestionsDialog({
                 value={currentContent}
                 onChange={(e) => handleContentEdit(suggestion.id, e.target.value)}
                 rows={3}
-                className="w-full text-sm px-3 py-2 border border-slate-300 rounded-md bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className={componentStyles.input.textarea}
               />
             </div>
           </div>
@@ -271,10 +269,10 @@ export default function TooltipSuggestionsDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+    <div className={componentStyles.dialog.overlay}>
+      <div className={componentStyles.dialog.container}>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+        <div className={componentStyles.dialog.header}>
           <div>
             <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
               <Sparkles className="text-indigo-600" size={24} />
@@ -284,12 +282,7 @@ export default function TooltipSuggestionsDialog({
               {manualSuggestions.length} manual, {aiSuggestions.length} AI-generated
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 transition-colors"
-          >
-            <X size={24} />
-          </button>
+          <IconButton icon={X} onClick={onClose} label="Close" />
         </div>
 
         {/* Content */}
@@ -319,7 +312,7 @@ export default function TooltipSuggestionsDialog({
                         value={manualLabel}
                         onChange={(e) => setManualLabel(e.target.value)}
                         placeholder="e.g., α, gradient descent"
-                        className="w-full text-sm px-3 py-2 border border-slate-300 rounded-md bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className={componentStyles.input.default}
                       />
                     </div>
                     <div>
@@ -329,7 +322,7 @@ export default function TooltipSuggestionsDialog({
                       <select
                         value={manualType}
                         onChange={(e) => setManualType(e.target.value)}
-                        className="w-full text-sm px-3 py-2 border border-slate-300 rounded-md bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className={componentStyles.input.default}
                       >
                         <option value="symbol" className="text-slate-900">Symbol</option>
                         <option value="definition" className="text-slate-900">Definition</option>
@@ -347,21 +340,19 @@ export default function TooltipSuggestionsDialog({
                       onChange={(e) => setManualContent(e.target.value)}
                       placeholder="Explanation or definition..."
                       rows={2}
-                      className="w-full text-sm px-3 py-2 border border-slate-300 rounded-md bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className={componentStyles.input.textarea}
                     />
                   </div>
-                  <button
+                  <Button
                     onClick={handleCreateManual}
-                    disabled={!manualLabel.trim() || !manualContent.trim() || creating}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!manualLabel.trim() || !manualContent.trim()}
+                    loading={creating}
+                    icon={Plus}
+                    size="sm"
+                    variant="primary"
                   >
-                    {creating ? (
-                      <Loader2 size={14} className="animate-spin" />
-                    ) : (
-                      <Plus size={14} />
-                    )}
                     Add Tooltip
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -449,36 +440,24 @@ export default function TooltipSuggestionsDialog({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200 bg-slate-50">
+        <div className={componentStyles.dialog.footer}>
           <div className="text-sm text-slate-600">
             <span className="font-medium">{selectedCount}</span> tooltip{selectedCount !== 1 ? 's' : ''} selected
           </div>
 
           <div className="flex gap-3">
-            <button
-              onClick={onClose}
-              disabled={applying}
-              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
+            <Button onClick={onClose} disabled={applying} variant="secondary">
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={handleApply}
-              disabled={applying || selectedCount === 0}
-              className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+              disabled={selectedCount === 0}
+              loading={applying}
+              icon={Check}
+              variant="primary"
             >
-              {applying ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" />
-                  Applying...
-                </>
-              ) : (
-                <>
-                  <Check size={16} />
-                  Apply {selectedCount} Tooltip{selectedCount !== 1 ? 's' : ''}
-                </>
-              )}
-            </button>
+              Apply {selectedCount} Tooltip{selectedCount !== 1 ? 's' : ''}
+            </Button>
           </div>
         </div>
       </div>

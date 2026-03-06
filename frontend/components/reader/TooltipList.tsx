@@ -13,6 +13,8 @@ import {
   type GroupingStrategy,
 } from '@/utils/tooltipGrouping';
 import { LatexText } from './LatexText';
+import { EmptyState, IconButton } from '@/components/ui';
+import { componentStyles } from '@/lib/design-system';
 
 interface TooltipListProps {
   tooltips: Tooltip[];
@@ -44,11 +46,11 @@ function TooltipCard({ tooltip, onEdit, onDelete, onPin, onNavigate }: TooltipCa
 
   return (
     <div
-      className={`
-        bg-white rounded-lg border p-3 space-y-2
-        ${isPinned ? 'border-indigo-300 shadow-sm' : 'border-slate-200'}
-        hover:border-slate-300 transition-colors
-      `}
+      className={
+        isPinned
+          ? componentStyles.card.selected + ' p-3 space-y-2'
+          : componentStyles.card.default + ' p-3 space-y-2'
+      }
     >
       {/* Header with target text and controls */}
       <div className="flex items-start justify-between gap-2">
@@ -65,22 +67,17 @@ function TooltipCard({ tooltip, onEdit, onDelete, onPin, onNavigate }: TooltipCa
         </div>
 
         <div className="flex items-center gap-1 flex-shrink-0">
-          <button
+          <IconButton
+            icon={Pin}
             onClick={() => onPin?.(tooltip.id)}
-            className={`p-1 rounded hover:bg-slate-100 transition-colors ${
-              isPinned ? 'text-indigo-600' : 'text-slate-400'
-            }`}
-            title={isPinned ? 'Unpin' : 'Pin'}
-          >
-            <Pin size={14} />
-          </button>
-          <button
+            variant={isPinned ? 'primary' : 'default'}
+            label={isPinned ? 'Unpin' : 'Pin'}
+          />
+          <IconButton
+            icon={expanded ? ChevronDown : ChevronRight}
             onClick={() => setExpanded(!expanded)}
-            className="p-1 rounded hover:bg-slate-100 transition-colors text-slate-400"
-            title={expanded ? 'Collapse' : 'Expand'}
-          >
-            {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          </button>
+            label={expanded ? 'Collapse' : 'Expand'}
+          />
         </div>
       </div>
 
@@ -99,7 +96,7 @@ function TooltipCard({ tooltip, onEdit, onDelete, onPin, onNavigate }: TooltipCa
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-2 pt-2 border-t">
+          <div className="flex items-center gap-2 pt-2 border-t border-slate-200">
             <button
               onClick={() => onEdit?.(tooltip)}
               className="flex items-center gap-1 px-2 py-1 text-xs text-slate-600 hover:text-indigo-600 hover:bg-slate-50 rounded transition-colors"
@@ -241,13 +238,12 @@ export default function TooltipList({
   // Empty state
   if (tooltips.length === 0) {
     return (
-      <div className="bg-slate-50 rounded-lg border border-slate-200 p-6 text-center">
-        <FileText size={32} className="mx-auto text-slate-300 mb-2" />
-        <p className="text-sm text-slate-500">No comments yet</p>
-        <p className="text-xs text-slate-400 mt-1">
-          Click on a paragraph and choose "Add Annotation"
-        </p>
-      </div>
+      <EmptyState
+        icon={FileText}
+        title="No comments yet"
+        description='Click on a paragraph and choose "Add Annotation"'
+        variant="card"
+      />
     );
   }
 
