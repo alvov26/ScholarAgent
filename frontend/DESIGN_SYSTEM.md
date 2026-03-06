@@ -313,6 +313,64 @@ import { Sparkles } from 'lucide-react';
 - `icon`: Optional Lucide icon
 - `indentLevel`: Nesting level for hierarchical sections
 
+### TreeView Component
+
+Reusable hierarchical tree component for displaying nested structures like table of contents, grouped tooltips, or file trees.
+
+```typescript
+import { TreeView } from '@/components/ui';
+import type { TOCNode } from '@/utils/parseTOC';
+
+// Example: Table of Contents
+<TreeView
+  nodes={tocNodes}
+  renderNode={(node, { isExpanded, depth, isActive, toggle }) => (
+    <button
+      onClick={() => onNavigate(node.id)}
+      className={`text-sm ${isActive ? 'text-indigo-700 font-medium' : 'text-slate-700'}`}
+    >
+      <span dangerouslySetInnerHTML={{ __html: node.title }} />
+    </button>
+  )}
+  getNodeId={(node) => node.id}
+  getNodeChildren={(node) => node.children}
+  activeNodeId={currentSectionId}
+  defaultExpanded={true}
+/>
+
+// Example: Hierarchical groups with badges
+<TreeView
+  nodes={groups}
+  renderNode={(group, { isExpanded, depth }) => (
+    <div className="flex items-center justify-between">
+      <span dangerouslySetInnerHTML={{ __html: group.title }} />
+      <span className="text-xs bg-slate-100 px-2 py-0.5 rounded-full">
+        {group.tooltips.length}
+      </span>
+    </div>
+  )}
+  getNodeId={(group) => group.id}
+  getNodeChildren={(group) => group.children || []}
+/>
+```
+
+**Props:**
+- `nodes`: Array of root nodes to display
+- `renderNode`: Function that renders each node's content (receives node and render props)
+- `getNodeId`: Function to extract unique ID from node
+- `getNodeChildren`: Function to get children array from node
+- `activeNodeId`: Optional ID of currently active/selected node
+- `defaultExpanded`: Whether nodes start expanded (default: `true`)
+- `indentSize`: Pixels per indent level (default: `12`)
+- `baseIndent`: Base padding in pixels (default: `8`)
+
+**Render Props:**
+- `isExpanded`: Whether this node is currently expanded
+- `isActive`: Whether this node matches `activeNodeId`
+- `depth`: Current nesting depth (0-indexed)
+- `hasChildren`: Whether this node has children
+- `toggle`: Function to toggle expansion state
+
 ## 3. Usage Examples
 
 ### Before (Inconsistent)

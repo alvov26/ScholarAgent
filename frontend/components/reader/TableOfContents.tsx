@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { ChevronRight, ChevronDown, FileText } from 'lucide-react';
+import { useEffect, useRef } from 'react';
+import { FileText } from 'lucide-react';
 import type { TOCNode } from '@/utils/parseTOC';
-import { EmptyState } from '@/components/ui';
+import { EmptyState, TreeView } from '@/components/ui';
 
 // Extend Window interface for MathJax
 declare global {
@@ -23,27 +23,14 @@ interface TableOfContentsProps {
   currentSectionId?: string | null;
 }
 
-interface TOCNodeItemProps {
+interface TOCNodeContentProps {
   node: TOCNode;
   onNavigate?: (id: string) => void;
-  currentSectionId?: string | null;
-  depth: number;
+  isActive: boolean;
 }
 
-function TOCNodeItem({ node, onNavigate, currentSectionId, depth }: TOCNodeItemProps) {
-  const [expanded, setExpanded] = useState(true);
-  const hasChildren = node.children.length > 0;
-  const isActive = node.id === currentSectionId;
+function TOCNodeContent({ node, onNavigate, isActive }: TOCNodeContentProps) {
   const titleRef = useRef<HTMLSpanElement>(null);
-
-  const handleToggle = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setExpanded(!expanded);
-  };
-
-  const handleNavigate = () => {
-    onNavigate?.(node.id);
-  };
 
   // Typeset MathML with MathJax when title changes
   useEffect(() => {
@@ -63,52 +50,20 @@ function TOCNodeItem({ node, onNavigate, currentSectionId, depth }: TOCNodeItemP
   }, [node.title]);
 
   return (
-    <div>
-      <div
-        className={`
-          w-full text-left px-2 py-1.5 rounded text-sm flex items-center gap-1.5
-          transition-colors cursor-pointer
-          ${isActive ? 'bg-indigo-50 text-indigo-700 font-medium' : 'hover:bg-slate-100 text-slate-700'}
-        `}
-        style={{ paddingLeft: `${depth * 12 + 8}px` }}
-        onClick={handleNavigate}
-      >
-        {hasChildren ? (
-          <button
-            onClick={handleToggle}
-            className="flex-shrink-0 hover:bg-slate-200 rounded p-0.5 -m-0.5"
-            aria-label={expanded ? 'Collapse' : 'Expand'}
-          >
-            {expanded ? (
-              <ChevronDown size={14} />
-            ) : (
-              <ChevronRight size={14} />
-            )}
-          </button>
-        ) : (
-          <div className="w-3.5" /> // Spacer for alignment
-        )}
-        <span
-          ref={titleRef}
-          className="truncate flex-1"
-          dangerouslySetInnerHTML={{ __html: node.title }}
-        />
-      </div>
-
-      {hasChildren && expanded && (
-        <div>
-          {node.children.map((child) => (
-            <TOCNodeItem
-              key={child.id}
-              node={child}
-              onNavigate={onNavigate}
-              currentSectionId={currentSectionId}
-              depth={depth + 1}
-            />
-          ))}
-        </div>
-      )}
-    </div>
+    <button
+      className={`
+        w-full text-left px-2 py-1.5 rounded text-sm
+        transition-colors cursor-pointer truncate
+        ${isActive ? 'bg-indigo-50 text-indigo-700 font-medium' : 'hover:bg-slate-100 text-slate-700'}
+      `}
+      onClick={() => onNavigate?.(node.id)}
+    >
+      <span
+        ref={titleRef}
+        className="truncate"
+        dangerouslySetInnerHTML={{ __html: node.title }}
+      />
+    </button>
   );
 }
 
@@ -129,16 +84,19 @@ export default function TableOfContents({
   }
 
   return (
-    <div className="space-y-1">
-      {nodes.map((node) => (
-        <TOCNodeItem
-          key={node.id}
+    <TreeView
+      nodes={nodes}
+      renderNode={(node, { isActive }) => (
+        <TOCNodeContent
           node={node}
           onNavigate={onNavigate}
-          currentSectionId={currentSectionId}
-          depth={0}
+          isActive={isActive}
         />
-      ))}
-    </div>
+      )}
+      getNodeId={(node) => node.id}
+      getNodeChildren={(node) => node.children}
+      activeNodeId={currentSectionId}
+      defaultExpanded={true}
+    />
   );
 }

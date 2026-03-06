@@ -13,7 +13,7 @@ import {
   type GroupingStrategy,
 } from '@/utils/tooltipGrouping';
 import { LatexText } from './LatexText';
-import { EmptyState, IconButton } from '@/components/ui';
+import { EmptyState, IconButton, TreeView } from '@/components/ui';
 import { componentStyles } from '@/lib/design-system';
 
 interface TooltipListProps {
@@ -121,16 +121,16 @@ function TooltipCard({ tooltip, onEdit, onDelete, onPin, onNavigate }: TooltipCa
   );
 }
 
-interface GroupSectionProps {
+interface GroupContentProps {
   group: TooltipGroup;
   onEdit?: (tooltip: Tooltip) => void;
   onDelete?: (tooltipId: string) => void;
   onPin?: (tooltipId: string) => void;
   onNavigate?: (domNodeId: string) => void;
+  depth: number;
 }
 
-function GroupSection({ group, onEdit, onDelete, onPin, onNavigate }: GroupSectionProps) {
-  const [collapsed, setCollapsed] = useState(false);
+function GroupContent({ group, onEdit, onDelete, onPin, onNavigate, depth }: GroupContentProps) {
   const sortedTooltips = useMemo(() => sortTooltipsByPriority(group.tooltips), [group.tooltips]);
 
   // Calculate total tooltip count including children
@@ -147,17 +147,10 @@ function GroupSection({ group, onEdit, onDelete, onPin, onNavigate }: GroupSecti
     return count;
   }, [group]);
 
-  const indentLevel = group.level || 0;
-
   return (
-    <div className="space-y-2">
+    <>
       {/* Group header */}
-      <button
-        onClick={() => setCollapsed(!collapsed)}
-        className="w-full flex items-center gap-2 px-2 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded transition-colors"
-        style={{ paddingLeft: `${indentLevel * 12 + 8}px` }}
-      >
-        {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+      <div className="w-full flex items-center gap-2 px-2 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded transition-colors">
         <span
           className="flex-1 text-left truncate"
           title={group.title.replace(/<[^>]*>/g, '')}
@@ -166,45 +159,24 @@ function GroupSection({ group, onEdit, onDelete, onPin, onNavigate }: GroupSecti
         <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
           {totalCount}
         </span>
-      </button>
+      </div>
 
-      {/* Content when expanded */}
-      {!collapsed && (
-        <div className="space-y-2">
-          {/* Tooltip cards for this section */}
-          {sortedTooltips.length > 0 && (
-            <div className="space-y-2 ml-4" style={{ marginLeft: `${(indentLevel + 1) * 12 + 8}px` }}>
-              {sortedTooltips.map(tooltip => (
-                <TooltipCard
-                  key={tooltip.id}
-                  tooltip={tooltip}
-                  onEdit={onEdit}
-                  onDelete={onDelete}
-                  onPin={onPin}
-                  onNavigate={onNavigate}
-                />
-              ))}
-            </div>
-          )}
-
-          {/* Child sections (recursively) */}
-          {group.children && group.children.length > 0 && (
-            <div className="space-y-2">
-              {group.children.map(child => (
-                <GroupSection
-                  key={child.id}
-                  group={child}
-                  onEdit={onEdit}
-                  onDelete={onDelete}
-                  onPin={onPin}
-                  onNavigate={onNavigate}
-                />
-              ))}
-            </div>
-          )}
+      {/* Tooltip cards for this section */}
+      {sortedTooltips.length > 0 && (
+        <div className="space-y-2 ml-4" style={{ marginLeft: `${(depth + 1) * 12 + 8}px` }}>
+          {sortedTooltips.map(tooltip => (
+            <TooltipCard
+              key={tooltip.id}
+              tooltip={tooltip}
+              onEdit={onEdit}
+              onDelete={onDelete}
+              onPin={onPin}
+              onNavigate={onNavigate}
+            />
+          ))}
         </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -273,18 +245,22 @@ export default function TooltipList({
       </div>
 
       {/* Tooltip groups */}
-      <div className="space-y-3">
-        {groups.map(group => (
-          <GroupSection
-            key={group.id}
+      <TreeView
+        nodes={groups}
+        renderNode={(group, { depth }) => (
+          <GroupContent
             group={group}
             onEdit={onEdit}
             onDelete={onDelete}
             onPin={onPin}
             onNavigate={onNavigate}
+            depth={depth}
           />
-        ))}
-      </div>
+        )}
+        getNodeId={(group) => group.id}
+        getNodeChildren={(group) => group.children || []}
+        defaultExpanded={true}
+      />
     </div>
   );
 }
