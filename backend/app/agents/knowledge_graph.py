@@ -21,6 +21,7 @@ except ImportError:
     from typing_extensions import NotRequired
 from pydantic import BaseModel, Field
 import operator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END
@@ -516,9 +517,17 @@ def _report_progress(state: GraphState, stage: str, current: int, total: int):
         state["progress_callback"](stage, current, total)
 
 
+def _get_worker_count() -> int:
+    """Get the number of parallel workers from environment variable."""
+    return int(os.getenv("KG_WORKERS", "4"))
+
+
 def extract_symbols(state: GraphState) -> GraphState:
     """Extract mathematical symbols using LLM."""
-    print(f"\n[1/4] Extracting symbols from {len(state['sections'])} sections...")
+    sections_to_process = [s for s in state["sections"] if len(strip_html_tags(s.get("content_html", ""))) >= 50]
+    worker_count = _get_worker_count()
+
+    print(f"\n[1/4] Extracting symbols from {len(sections_to_process)} sections (using {worker_count} workers)...")
 
     llm = ChatAnthropic(model="claude-sonnet-4-5-20250929")
     structured_llm = llm.with_structured_output(SymbolExtractionOutput)
@@ -531,11 +540,16 @@ def extract_symbols(state: GraphState) -> GraphState:
     chain = prompt | structured_llm
 
     symbols = []
-    sections_to_process = [s for s in state["sections"] if len(strip_html_tags(s.get("content_html", ""))) >= 50]
+    errors = []
 
     _report_progress(state, "symbols", 0, len(sections_to_process))
 
-    for idx, section in enumerate(sections_to_process, 1):
+    def process_section(idx_section):
+        """Process a single section (for parallel execution)."""
+        idx, section = idx_section
+        section_symbols = []
+        section_errors = []
+
         try:
             content_text = strip_html_tags(section.get("content_html", ""))
             section_title = section.get("title", "Untitled")
@@ -564,25 +578,23 @@ def extract_symbols(state: GraphState) -> GraphState:
                 )
             except TimeoutException as te:
                 print(f"⏱ Timeout after all retries!")
-                state["errors"].append(f"Symbol extraction timed out for section {section_id} ({section_title})")
-                _report_progress(state, "symbols", idx, len(sections_to_process))
-                continue
+                section_errors.append(f"Symbol extraction timed out for section {section_id} ({section_title})")
+                return section_symbols, section_errors
             except Exception as e:
                 # This catches non-retryable errors or exhausted retries
                 print(f"✗ Failed after retries!")
                 error_details = f"Symbol extraction failed for section {section_id} ({section_title}): {type(e).__name__}: {str(e)}"
-                state["errors"].append(error_details)
+                section_errors.append(error_details)
                 if os.getenv("KG_DEBUG"):
                     import traceback
                     print(f"\n      Full traceback:\n{traceback.format_exc()}")
-                _report_progress(state, "symbols", idx, len(sections_to_process))
-                continue
+                return section_symbols, section_errors
 
             count = len(response.symbols)
             print(f"✓ ({count} symbols)")
 
             for symbol in response.symbols:
-                symbols.append({
+                section_symbols.append({
                     "symbol": symbol.symbol,
                     "latex": symbol.latex,
                     "context": symbol.context,
@@ -592,25 +604,42 @@ def extract_symbols(state: GraphState) -> GraphState:
                     # Note: occurrences are found lazily at tooltip application time
                 })
 
-            _report_progress(state, "symbols", idx, len(sections_to_process))
-
         except Exception as e:
             print(f"✗ Error: {str(e)}")
             error_details = f"Symbol extraction failed for section {section_id} ({section_title}): {type(e).__name__}: {str(e)}"
-            state["errors"].append(error_details)
+            section_errors.append(error_details)
             if os.getenv("KG_DEBUG"):
                 import traceback
                 print(f"\n      Full traceback:\n{traceback.format_exc()}")
-            _report_progress(state, "symbols", idx, len(sections_to_process))
+
+        return section_symbols, section_errors
+
+    # Process sections in parallel
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = {
+            executor.submit(process_section, (idx, section)): idx
+            for idx, section in enumerate(sections_to_process, 1)
+        }
+
+        completed = 0
+        for future in as_completed(futures):
+            completed += 1
+            section_symbols, section_errors = future.result()
+            symbols.extend(section_symbols)
+            errors.extend(section_errors)
+            _report_progress(state, "symbols", completed, len(sections_to_process))
 
     print(f"  → Total: {len(symbols)} symbols extracted")
     # Return only the keys we're updating (for parallel execution compatibility)
-    return {"symbols": symbols, "errors": state.get("errors", [])}
+    return {"symbols": symbols, "errors": errors}
 
 
 def extract_definitions(state: GraphState) -> GraphState:
     """Extract definitions using LLM."""
-    print(f"\n[2/4] Extracting definitions from {len(state['sections'])} sections...")
+    sections_to_process = [s for s in state["sections"] if len(strip_html_tags(s.get("content_html", ""))) >= 50]
+    worker_count = _get_worker_count()
+
+    print(f"\n[2/4] Extracting definitions from {len(sections_to_process)} sections (using {worker_count} workers)...")
 
     llm = ChatAnthropic(model="claude-sonnet-4-5-20250929")
     structured_llm = llm.with_structured_output(DefinitionExtractionOutput)
@@ -623,11 +652,16 @@ def extract_definitions(state: GraphState) -> GraphState:
     chain = prompt | structured_llm
 
     definitions = []
-    sections_to_process = [s for s in state["sections"] if len(strip_html_tags(s.get("content_html", ""))) >= 50]
+    errors = []
 
     _report_progress(state, "definitions", 0, len(sections_to_process))
 
-    for idx, section in enumerate(sections_to_process, 1):
+    def process_section(idx_section):
+        """Process a single section (for parallel execution)."""
+        idx, section = idx_section
+        section_definitions = []
+        section_errors = []
+
         try:
             content_text = strip_html_tags(section.get("content_html", ""))
             section_title = section.get("title", "Untitled")
@@ -656,25 +690,23 @@ def extract_definitions(state: GraphState) -> GraphState:
                 )
             except TimeoutException as te:
                 print(f"⏱ Timeout after all retries!")
-                state["errors"].append(f"Definition extraction timed out for section {section_id} ({section_title})")
-                _report_progress(state, "definitions", idx, len(sections_to_process))
-                continue
+                section_errors.append(f"Definition extraction timed out for section {section_id} ({section_title})")
+                return section_definitions, section_errors
             except Exception as e:
                 # This catches non-retryable errors or exhausted retries
                 print(f"✗ Failed after retries!")
                 error_details = f"Definition extraction failed for section {section_id} ({section_title}): {type(e).__name__}: {str(e)}"
-                state["errors"].append(error_details)
+                section_errors.append(error_details)
                 if os.getenv("KG_DEBUG"):
                     import traceback
                     print(f"\n      Full traceback:\n{traceback.format_exc()}")
-                _report_progress(state, "definitions", idx, len(sections_to_process))
-                continue
+                return section_definitions, section_errors
 
             count = len(response.definitions)
             print(f"✓ ({count} definitions)")
 
             for defn in response.definitions:
-                definitions.append({
+                section_definitions.append({
                     "term": defn.term,
                     "definition_text": defn.definition_text,
                     "summary": defn.summary,
@@ -685,25 +717,42 @@ def extract_definitions(state: GraphState) -> GraphState:
                     # Note: occurrences are found lazily at tooltip application time
                 })
 
-            _report_progress(state, "definitions", idx, len(sections_to_process))
-
         except Exception as e:
             print(f"✗ Error: {str(e)}")
             error_details = f"Definition extraction failed for section {section_id} ({section_title}): {type(e).__name__}: {str(e)}"
-            state["errors"].append(error_details)
+            section_errors.append(error_details)
             if os.getenv("KG_DEBUG"):
                 import traceback
                 print(f"\n      Full traceback:\n{traceback.format_exc()}")
-            _report_progress(state, "definitions", idx, len(sections_to_process))
+
+        return section_definitions, section_errors
+
+    # Process sections in parallel
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = {
+            executor.submit(process_section, (idx, section)): idx
+            for idx, section in enumerate(sections_to_process, 1)
+        }
+
+        completed = 0
+        for future in as_completed(futures):
+            completed += 1
+            section_definitions, section_errors = future.result()
+            definitions.extend(section_definitions)
+            errors.extend(section_errors)
+            _report_progress(state, "definitions", completed, len(sections_to_process))
 
     print(f"  → Total: {len(definitions)} definitions extracted")
     # Return only the keys we're updating (for parallel execution compatibility)
-    return {"definitions": definitions, "errors": state.get("errors", [])}
+    return {"definitions": definitions, "errors": errors}
 
 
 def extract_theorems(state: GraphState) -> GraphState:
     """Extract theorems, lemmas, corollaries using LLM."""
-    print(f"\n[3/4] Extracting theorems from {len(state['sections'])} sections...")
+    sections_to_process = [s for s in state["sections"] if len(strip_html_tags(s.get("content_html", ""))) >= 50]
+    worker_count = _get_worker_count()
+
+    print(f"\n[3/4] Extracting theorems from {len(sections_to_process)} sections (using {worker_count} workers)...")
 
     llm = ChatAnthropic(model="claude-sonnet-4-5-20250929")
     structured_llm = llm.with_structured_output(TheoremExtractionOutput)
@@ -716,11 +765,16 @@ def extract_theorems(state: GraphState) -> GraphState:
     chain = prompt | structured_llm
 
     theorems = []
-    sections_to_process = [s for s in state["sections"] if len(strip_html_tags(s.get("content_html", ""))) >= 50]
+    errors = []
 
     _report_progress(state, "theorems", 0, len(sections_to_process))
 
-    for idx, section in enumerate(sections_to_process, 1):
+    def process_section(idx_section):
+        """Process a single section (for parallel execution)."""
+        idx, section = idx_section
+        section_theorems = []
+        section_errors = []
+
         try:
             content_text = strip_html_tags(section.get("content_html", ""))
             section_title = section.get("title", "Untitled")
@@ -749,25 +803,23 @@ def extract_theorems(state: GraphState) -> GraphState:
                 )
             except TimeoutException as te:
                 print(f"⏱ Timeout after all retries!")
-                state["errors"].append(f"Theorem extraction timed out for section {section_id} ({section_title})")
-                _report_progress(state, "theorems", idx, len(sections_to_process))
-                continue
+                section_errors.append(f"Theorem extraction timed out for section {section_id} ({section_title})")
+                return section_theorems, section_errors
             except Exception as e:
                 # This catches non-retryable errors or exhausted retries
                 print(f"✗ Failed after retries!")
                 error_details = f"Theorem extraction failed for section {section_id} ({section_title}): {type(e).__name__}: {str(e)}"
-                state["errors"].append(error_details)
+                section_errors.append(error_details)
                 if os.getenv("KG_DEBUG"):
                     import traceback
                     print(f"\n      Full traceback:\n{traceback.format_exc()}")
-                _report_progress(state, "theorems", idx, len(sections_to_process))
-                continue
+                return section_theorems, section_errors
 
             count = len(response.theorems)
             print(f"✓ ({count} theorems)")
 
             for thm in response.theorems:
-                theorems.append({
+                section_theorems.append({
                     "type": thm.type,
                     "number": thm.number,
                     "name": thm.name,
@@ -778,25 +830,42 @@ def extract_theorems(state: GraphState) -> GraphState:
                     # Note: occurrences are found lazily at tooltip application time
                 })
 
-            _report_progress(state, "theorems", idx, len(sections_to_process))
-
         except Exception as e:
             print(f"✗ Error: {str(e)}")
             error_details = f"Theorem extraction failed for section {section_id} ({section_title}): {type(e).__name__}: {str(e)}"
-            state["errors"].append(error_details)
+            section_errors.append(error_details)
             if os.getenv("KG_DEBUG"):
                 import traceback
                 print(f"\n      Full traceback:\n{traceback.format_exc()}")
-            _report_progress(state, "theorems", idx, len(sections_to_process))
+
+        return section_theorems, section_errors
+
+    # Process sections in parallel
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = {
+            executor.submit(process_section, (idx, section)): idx
+            for idx, section in enumerate(sections_to_process, 1)
+        }
+
+        completed = 0
+        for future in as_completed(futures):
+            completed += 1
+            section_theorems, section_errors = future.result()
+            theorems.extend(section_theorems)
+            errors.extend(section_errors)
+            _report_progress(state, "theorems", completed, len(sections_to_process))
 
     print(f"  → Total: {len(theorems)} theorems extracted")
     # Return only the keys we're updating (for parallel execution compatibility)
-    return {"theorems": theorems, "errors": state.get("errors", [])}
+    return {"theorems": theorems, "errors": errors}
 
 
 def extract_dependencies(state: GraphState) -> GraphState:
     """Extract relationships between entities."""
-    print(f"\n[4/4] Extracting relationships from {len(state['sections'])} sections...")
+    sections_to_process = [s for s in state["sections"] if len(strip_html_tags(s.get("content_html", ""))) >= 50]
+    worker_count = _get_worker_count()
+
+    print(f"\n[4/4] Extracting relationships from {len(sections_to_process)} sections (using {worker_count} workers)...")
 
     llm = ChatAnthropic(model="claude-sonnet-4-5-20250929")
     structured_llm = llm.with_structured_output(RelationshipExtractionOutput)
@@ -808,7 +877,7 @@ def extract_dependencies(state: GraphState) -> GraphState:
 
     chain = prompt | structured_llm
 
-    # Prepare entity lists for context with summaries
+    # Prepare entity lists for context with summaries (pass ALL entities to each section)
     symbol_list = [f"{s['symbol']}: {s['context']}" for s in state["symbols"]]
     definition_list = [f"{d['term']}: {d['summary']}" for d in state["definitions"]]
     theorem_list = [
@@ -821,11 +890,16 @@ def extract_dependencies(state: GraphState) -> GraphState:
     print(f"  Context: {len(symbol_list)} symbols, {len(definition_list)} definitions, {len(theorem_list)} theorems")
 
     relationships = []
-    sections_to_process = [s for s in state["sections"] if len(strip_html_tags(s.get("content_html", ""))) >= 50]
+    errors = []
 
     _report_progress(state, "dependencies", 0, len(sections_to_process))
 
-    for idx, section in enumerate(sections_to_process, 1):
+    def process_section(idx_section):
+        """Process a single section (for parallel execution)."""
+        idx, section = idx_section
+        section_relationships = []
+        section_errors = []
+
         try:
             content_text = strip_html_tags(section.get("content_html", ""))
             section_title = section.get("title", "Untitled")
@@ -857,25 +931,23 @@ def extract_dependencies(state: GraphState) -> GraphState:
                 )
             except TimeoutException as te:
                 print(f"⏱ Timeout after all retries!")
-                state["errors"].append(f"Dependency extraction timed out for section {section_id} ({section_title})")
-                _report_progress(state, "dependencies", idx, len(sections_to_process))
-                continue
+                section_errors.append(f"Dependency extraction timed out for section {section_id} ({section_title})")
+                return section_relationships, section_errors
             except Exception as e:
                 # This catches non-retryable errors or exhausted retries
                 print(f"✗ Failed after retries!")
                 error_details = f"Dependency extraction failed for section {section_id} ({section_title}): {type(e).__name__}: {str(e)}"
-                state["errors"].append(error_details)
+                section_errors.append(error_details)
                 if os.getenv("KG_DEBUG"):
                     import traceback
                     print(f"\n      Full traceback:\n{traceback.format_exc()}")
-                _report_progress(state, "dependencies", idx, len(sections_to_process))
-                continue
+                return section_relationships, section_errors
 
             count = len(response.relationships)
             print(f"✓ ({count} relationships)")
 
             for rel in response.relationships:
-                relationships.append({
+                section_relationships.append({
                     "from_entity": rel.from_entity,
                     "to_entity": rel.to_entity,
                     "type": rel.relationship_type,
@@ -883,19 +955,34 @@ def extract_dependencies(state: GraphState) -> GraphState:
                     "section_id": section_id,
                 })
 
-            _report_progress(state, "dependencies", idx, len(sections_to_process))
-
         except Exception as e:
             print(f"✗ Error: {str(e)}")
             error_details = f"Dependency extraction failed for section {section_id} ({section_title}): {type(e).__name__}: {str(e)}"
-            state["errors"].append(error_details)
+            section_errors.append(error_details)
             if os.getenv("KG_DEBUG"):
                 import traceback
                 print(f"\n      Full traceback:\n{traceback.format_exc()}")
-            _report_progress(state, "dependencies", idx, len(sections_to_process))
+
+        return section_relationships, section_errors
+
+    # Process sections in parallel
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = {
+            executor.submit(process_section, (idx, section)): idx
+            for idx, section in enumerate(sections_to_process, 1)
+        }
+
+        completed = 0
+        for future in as_completed(futures):
+            completed += 1
+            section_relationships, section_errors = future.result()
+            relationships.extend(section_relationships)
+            errors.extend(section_errors)
+            _report_progress(state, "dependencies", completed, len(sections_to_process))
 
     print(f"  → Total: {len(relationships)} relationships extracted")
     state["relationships"] = relationships
+    state["errors"].extend(errors)
     return state
 
 
