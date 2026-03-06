@@ -16,6 +16,7 @@ import re
 from typing import TypedDict, List, Dict, Any, Tuple
 from pydantic import BaseModel, Field
 from bs4 import BeautifulSoup
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END
@@ -32,6 +33,15 @@ from backend.app.agents.utils import (
 )
 
 load_dotenv()
+
+
+# =============================================================================
+# Configuration
+# =============================================================================
+
+def _get_worker_count() -> int:
+    """Get the number of parallel workers from environment variable."""
+    return int(os.getenv("KG_WORKERS", "4"))
 
 
 # =============================================================================
@@ -174,6 +184,8 @@ def process_sections(state: InjectionState) -> InjectionState:
     1. Extract content_html and convert to plain text for LLM
     2. Use LLM to find entity occurrences
     3. Apply injections directly to the parsed HTML DOM
+
+    Entities are processed in batches of 10 to avoid overwhelming the LLM.
     """
     if not state["entities"]:
         print("[HTML Injection] No entities to inject, skipping")
@@ -181,6 +193,14 @@ def process_sections(state: InjectionState) -> InjectionState:
             **state,
             "modified_html": state["current_html"],
         }
+
+    # Batch size for processing entities
+    BATCH_SIZE = 10
+    total_entities = len(state["entities"])
+    num_batches = (total_entities + BATCH_SIZE - 1) // BATCH_SIZE  # Ceiling division
+
+    if num_batches > 1:
+        print(f"[HTML Injection] Processing {total_entities} entities in {num_batches} batches of {BATCH_SIZE}")
 
     llm = ChatAnthropic(
         model=os.getenv("HTML_INJECTION_MODEL", "claude-haiku-4-5-20251001"),
@@ -195,12 +215,6 @@ def process_sections(state: InjectionState) -> InjectionState:
 
     chain = prompt | structured_llm
 
-    # Format entity list for prompt
-    entity_list_str = "\n".join(
-        f"- Term: \"{e['label']}\" → entity_id: \"{e['entity_id']}\", entity_type: \"{e['entity_type']}\""
-        for e in state["entities"]
-    )
-
     # Parse the full HTML document once - we'll modify this DOM directly
     soup = BeautifulSoup(state["current_html"], 'html.parser')
 
@@ -209,84 +223,120 @@ def process_sections(state: InjectionState) -> InjectionState:
     sections_processed = 0
 
     debug = get_debug_flag("HTML_INJECTION_DEBUG")
+    worker_count = _get_worker_count()
 
     # Filter sections using shared utility
     sections_to_process = filter_processable_sections(state["sections_data"])
 
-    print(f"[HTML Injection] Processing {len(sections_to_process)} sections with content...")
+    # Process entities in batches
+    for batch_idx in range(num_batches):
+        start_idx = batch_idx * BATCH_SIZE
+        end_idx = min(start_idx + BATCH_SIZE, total_entities)
+        entity_batch = state["entities"][start_idx:end_idx]
 
-    for idx, section in enumerate(sections_to_process, 1):
-        content_html = section.get("content_html", "")
-        section_title = section.get("title", "Untitled")[:40]
-        section_id = section.get("id", "")
+        if num_batches > 1:
+            print(f"\n[HTML Injection] === Batch {batch_idx + 1}/{num_batches}: Processing entities {start_idx + 1}-{end_idx} ===")
 
-        # Get plain text for LLM (same as knowledge_graph.py)
-        content_text = strip_html_tags(content_html)
+        # Format entity list for prompt (only current batch)
+        entity_list_str = "\n".join(
+            f"- Term: \"{e['label']}\" → entity_id: \"{e['entity_id']}\", entity_type: \"{e['entity_type']}\""
+            for e in entity_batch
+        )
 
-        sections_processed += 1
+        print(f"[HTML Injection] Processing {len(sections_to_process)} sections with {len(entity_batch)} entities...")
 
-        print(f"[HTML Injection] [{sections_processed}/{len(sections_to_process)}] {section_title}...", end=" ", flush=True)
+        def process_section(idx_section):
+            """Process a single section (for parallel execution)."""
+            idx, section = idx_section
+            content_html = section.get("content_html", "")
+            section_title = section.get("title", "Untitled")[:40]
+            section_id = section.get("id", "")
 
-        if debug:
-            print(f"\n  Section ID: {section_id}")
-            print(f"  Content preview ({len(content_text)} chars): {content_text[:150]}...")
-            print(f"  Looking for entities: {[e['label'] for e in state['entities']]}")
+            # Get plain text for LLM (same as knowledge_graph.py)
+            content_text = strip_html_tags(content_html)
 
-        try:
-            # Call LLM with plain text (simpler and more reliable)
-            invoke_args = {
-                "html_content": content_html[:12000],
-                "entity_list": entity_list_str,
+            print(f"  [{idx}/{len(sections_to_process)}] {section_title}...", end=" ", flush=True)
+
+            if debug:
+                print(f"\n    Section ID: {section_id}")
+                print(f"    Content preview ({len(content_text)} chars): {content_text[:150]}...")
+                print(f"    Looking for entities: {[e['label'] for e in entity_batch]}")
+
+            try:
+                # Call LLM with plain text (simpler and more reliable)
+                invoke_args = {
+                    "html_content": content_html[:12000],
+                    "entity_list": entity_list_str,
+                }
+
+                if debug:
+                    print(f"    Calling LLM...")
+
+                response = run_with_retry(
+                    func=chain.invoke,
+                    max_retries=2,
+                    base_delay=1.0,
+                    timeout_seconds=60,
+                    func_args=(invoke_args,)
+                )
+
+                if debug:
+                    print(f"    LLM response: {len(response.injections)} injections")
+                    if response.reasoning:
+                        print(f"    Reasoning: {response.reasoning[:150]}...")
+
+                if not response.injections:
+                    print("(no matches)")
+                    return section_id, [], None
+
+                if debug:
+                    print(f"    Injections to apply:")
+                    for inj in response.injections:
+                        print(f"      - \"{inj.original_text}\" → {inj.entity_id}")
+
+                print(f"✓ ({len(response.injections)} found)")
+                return section_id, response.injections, None
+
+            except TimeoutException:
+                error_msg = f"Section '{section_title}': Timeout during LLM call"
+                print("⏱ timeout")
+                return section_id, [], error_msg
+            except Exception as e:
+                error_msg = f"Section '{section_title}': {str(e)}"
+                print(f"✗ error: {e}")
+                if debug:
+                    import traceback
+                    traceback.print_exc()
+                return section_id, [], error_msg
+
+        # Process sections in parallel
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = {
+                executor.submit(process_section, (idx, section)): idx
+                for idx, section in enumerate(sections_to_process, 1)
             }
 
-            if debug:
-                print(f"  Calling LLM...")
+            completed = 0
+            for future in as_completed(futures):
+                completed += 1
+                section_id, injections, error = future.result()
 
-            response = run_with_retry(
-                func=chain.invoke,
-                max_retries=2,
-                base_delay=1.0,
-                timeout_seconds=60,
-                func_args=(invoke_args,)
-            )
+                # Only count sections_processed once (in the first batch)
+                if batch_idx == 0:
+                    sections_processed += 1
 
-            if debug:
-                print(f"  LLM response: {len(response.injections)} injections")
-                if response.reasoning:
-                    print(f"  Reasoning: {response.reasoning[:150]}...")
-
-            if not response.injections:
-                print("(no matches)")
-                continue
-
-            if debug:
-                print(f"  Injections to apply:")
-                for inj in response.injections:
-                    print(f"    - \"{inj.original_text}\" → {inj.entity_id}")
-
-            # Apply injections directly to the soup DOM
-            injection_count = _apply_injections_to_soup(
-                soup,
-                section_id,
-                response.injections,
-                debug
-            )
-
-            if injection_count > 0:
-                total_injections += injection_count
-                print(f"✓ ({injection_count} spans)")
-            else:
-                print("(no valid injections)")
-
-        except TimeoutException:
-            errors.append(f"Section '{section_title}': Timeout during LLM call")
-            print("⏱ timeout")
-        except Exception as e:
-            errors.append(f"Section '{section_title}': {str(e)}")
-            print(f"✗ error: {e}")
-            if debug:
-                import traceback
-                traceback.print_exc()
+                if error:
+                    errors.append(error)
+                elif injections:
+                    # Apply injections to the soup DOM (sequentially, thread-safe)
+                    injection_count = _apply_injections_to_soup(
+                        soup,
+                        section_id,
+                        injections,
+                        debug
+                    )
+                    if injection_count > 0:
+                        total_injections += injection_count
 
     # Serialize the modified DOM back to HTML
     modified_html = str(soup)
