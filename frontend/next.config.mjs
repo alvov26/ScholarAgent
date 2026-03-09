@@ -8,9 +8,10 @@ const __dirname = path.dirname(__filename);
 const nextConfig = {
   output: 'standalone',
   transpilePackages: ["mathjax-full"],
-  turbopack: {
-    root: path.resolve(__dirname, ".."),
-  },
+  // Note: turbopack.root is commented out for Docker builds as it breaks standalone mode
+  // turbopack: {
+  //   root: path.resolve(__dirname, ".."),
+  // },
   serverExternalPackages: ["lightningcss", "@tailwindcss/postcss", "@tailwindcss/node", "@tailwindcss/oxide"],
   async rewrites() {
     const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';

@@ -12,18 +12,17 @@ RUN npm ci
 COPY . .
 
 # Build Next.js application
-# Use --webpack to force webpack instead of turbopack (required for standalone output)
-RUN npx next build --webpack
+RUN npm run build
 
 # Production stage
 FROM node:20-slim
 
 WORKDIR /app
 
-# Copy standalone server (Next.js puts it in .next/standalone/)
-COPY --from=builder /app/.next/standalone ./
+# Copy standalone server output
+COPY --from=builder /app/.next/standalone/ ./
 
-# Copy static assets
+# Copy static assets to the correct location
 COPY --from=builder /app/.next/static ./.next/static
 
 # Copy or create public directory
@@ -36,5 +35,5 @@ ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 
-# The standalone output puts server.js at the root of the app structure
+# server.js is at the root of the standalone output
 CMD ["node", "server.js"]
