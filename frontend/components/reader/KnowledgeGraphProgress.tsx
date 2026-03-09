@@ -34,7 +34,8 @@ export function KnowledgeGraphProgress({
 
   useEffect(() => {
     // Connect directly to backend for SSE (bypasses Next.js proxy which buffers streams)
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL ||
+      `${window.location.protocol}//${window.location.hostname}:8000`;
     const eventSource = new EventSource(
       `${backendUrl}/api/papers/${paperId}/knowledge-graph/build/progress`
     );

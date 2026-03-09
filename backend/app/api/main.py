@@ -40,6 +40,10 @@ ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 # Format: {paper_id: {stage: str, progress: {stage_name: {current: int, total: int}}}}
 kg_build_progress: Dict[str, Dict[str, Any]] = {}
 
+# Compilation progress tracking
+# Format: {paper_id: {stage: str, message: str}} or {stage: "error", error: str}
+compile_progress: Dict[str, Dict[str, Any]] = {}
+
 # Configuration
 USE_DOCKER = os.getenv("LATEXML_USE_DOCKER", "true").lower() == "true"
 
@@ -187,11 +191,12 @@ async def root():
 
 @app.post("/api/papers/upload", response_model=PaperResponse)
 async def upload_paper(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     compile_now: bool = Form(default=True),
     db: Session = Depends(get_db)
 ):
-    """Upload a .tar.gz LaTeX source archive and optionally compile to HTML."""
+    """Upload a .tar.gz LaTeX source archive and start async compilation."""
     if not file.filename:
         raise HTTPException(status_code=400, detail="File must have a name")
 
@@ -220,46 +225,31 @@ async def upload_paper(
         with open(upload_path, "wb") as handle:
             handle.write(data)
 
-    # Create paper record
+    # Create paper record (without HTML — compilation happens in background)
     paper = Paper(
         id=file_hash,
         filename=file.filename,
         uploaded_at=datetime.now(UTC)
     )
-
-    # Compile if requested
-    if compile_now:
-        try:
-            paper_assets_dir = ASSETS_DIR / file_hash
-            result = compile_latex_to_html(upload_path, file_hash, use_docker=USE_DOCKER, assets_dir=paper_assets_dir)
-
-            # Store HTML and all extracted metadata
-            paper.html_content = result.html_content
-            paper.sections_data = result.sections
-            paper.equations_data = result.equations
-            paper.citations_data = result.citations
-            paper.paper_metadata = result.metadata
-            paper.latex_source = result.latex_source
-            paper.compiled_at = datetime.now(UTC)
-        except Exception as e:
-            # Store paper without HTML, log error
-            paper.html_content = None
-            # Could add error logging here
-
     db.add(paper)
     db.commit()
     db.refresh(paper)
+
+    if compile_now:
+        compile_progress[file_hash] = {"stage": "starting", "message": "Starting LaTeXML..."}
+        background_tasks.add_task(_run_compile_task, file_hash, str(upload_path))
 
     return _paper_to_response(paper)
 
 
 @app.post("/api/papers/upload/arxiv", response_model=PaperResponse)
 async def upload_arxiv_source(
+    background_tasks: BackgroundTasks,
     url_or_id: str = Form(...),
     compile_now: bool = Form(default=True),
     db: Session = Depends(get_db)
 ):
-    """Download arXiv source and compile to HTML."""
+    """Download arXiv source and start async compilation."""
     arxiv_id = _extract_arxiv_id(url_or_id)
     if not arxiv_id:
         raise HTTPException(status_code=400, detail="Invalid arXiv URL or ID")
@@ -271,66 +261,40 @@ async def upload_arxiv_source(
     if existing:
         return _paper_to_response(existing)
 
-    # Create paper record
+    # Create paper record (without HTML — compilation happens in background)
     paper = Paper(
         id=file_hash,
         filename=f"arXiv:{arxiv_id}",
         arxiv_id=arxiv_id,
         uploaded_at=datetime.now(UTC)
     )
-
-    # Compile if requested
-    if compile_now:
-        try:
-            paper_assets_dir = ASSETS_DIR / file_hash
-            result = compile_latex_to_html(archive_path, file_hash, use_docker=USE_DOCKER, assets_dir=paper_assets_dir)
-
-            # Store HTML and all extracted metadata
-            paper.html_content = result.html_content
-            paper.sections_data = result.sections
-            paper.equations_data = result.equations
-            paper.citations_data = result.citations
-            paper.paper_metadata = result.metadata
-            paper.latex_source = result.latex_source
-            paper.compiled_at = datetime.now(UTC)
-        except Exception as e:
-            paper.html_content = None
-
     db.add(paper)
     db.commit()
     db.refresh(paper)
+
+    if compile_now:
+        compile_progress[file_hash] = {"stage": "starting", "message": "Starting LaTeXML..."}
+        background_tasks.add_task(_run_compile_task, file_hash, str(archive_path))
 
     return _paper_to_response(paper)
 
 
 @app.post("/api/papers/{paper_id}/compile", response_model=PaperResponse)
-async def compile_paper(paper_id: str, db: Session = Depends(get_db)):
-    """Trigger compilation for an uploaded paper."""
+async def compile_paper(paper_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    """Trigger async compilation for an uploaded paper."""
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
 
-    # Find source file
     source_path = _find_source_file(paper_id)
     if not source_path:
         raise HTTPException(status_code=404, detail="Source file not found")
 
-    try:
-        paper_assets_dir = ASSETS_DIR / paper_id
-        result = compile_latex_to_html(source_path, paper_id, use_docker=USE_DOCKER, assets_dir=paper_assets_dir)
+    if paper_id in compile_progress and compile_progress[paper_id].get("stage") not in ("complete", "error"):
+        raise HTTPException(status_code=409, detail="Compilation already in progress")
 
-        # Store HTML and all extracted metadata
-        paper.html_content = result.html_content
-        paper.sections_data = result.sections
-        paper.equations_data = result.equations
-        paper.citations_data = result.citations
-        paper.paper_metadata = result.metadata
-        paper.latex_source = result.latex_source
-        paper.compiled_at = datetime.now(UTC)
-        db.commit()
-        db.refresh(paper)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Compilation failed: {str(e)}")
+    compile_progress[paper_id] = {"stage": "starting", "message": "Starting LaTeXML..."}
+    background_tasks.add_task(_run_compile_task, paper_id, str(source_path))
 
     return _paper_to_response(paper)
 
@@ -968,6 +932,93 @@ class KnowledgeGraphBuildResponse(BaseModel):
     node_count: int
     edge_count: int
     errors: Optional[List[str]] = None
+
+
+def _run_compile_task(paper_id: str, source_path: str):
+    """Background task to compile a LaTeX paper via Docker."""
+    from backend.app.database.connection import SessionLocal
+
+    db = SessionLocal()
+    try:
+        compile_progress[paper_id] = {"stage": "compiling", "message": "Running LaTeXML compiler..."}
+
+        paper_assets_dir = ASSETS_DIR / paper_id
+        result = compile_latex_to_html(
+            Path(source_path), paper_id, use_docker=USE_DOCKER, assets_dir=paper_assets_dir
+        )
+
+        paper = db.query(Paper).filter(Paper.id == paper_id).first()
+        if paper:
+            paper.html_content = result.html_content
+            paper.sections_data = result.sections
+            paper.equations_data = result.equations
+            paper.citations_data = result.citations
+            paper.paper_metadata = result.metadata
+            paper.latex_source = result.latex_source
+            paper.compiled_at = datetime.now(UTC)
+            db.commit()
+
+        compile_progress[paper_id] = {"stage": "complete", "message": "Compilation successful"}
+    except Exception as e:
+        compile_progress[paper_id] = {"stage": "error", "error": str(e)}
+    finally:
+        db.close()
+
+
+@app.get("/api/papers/{paper_id}/compile/progress")
+async def compile_progress_sse(paper_id: str):
+    """
+    SSE endpoint for real-time compilation progress.
+
+    Sends periodic heartbeat comments to keep the connection alive through
+    proxies (Next.js rewrite) during the compilation wait.
+    """
+    async def event_generator():
+        try:
+            yield f"data: {json.dumps({'type': 'connected', 'paper_id': paper_id})}\n\n"
+
+            last_progress = None
+            heartbeat_counter = 0
+            wait_count = 0
+
+            while True:
+                if paper_id in compile_progress:
+                    wait_count = 0
+                    current = compile_progress[paper_id]
+
+                    if current != last_progress:
+                        yield f"data: {json.dumps(current)}\n\n"
+                        last_progress = current.copy()
+
+                    if current.get("stage") in ("complete", "error"):
+                        await asyncio.sleep(1)
+                        compile_progress.pop(paper_id, None)
+                        break
+                else:
+                    wait_count += 1
+                    if wait_count > 60:  # 30 s max wait for task to appear
+                        yield f"data: {json.dumps({'stage': 'error', 'error': 'Compilation task not found'})}\n\n"
+                        break
+
+                await asyncio.sleep(0.5)
+
+                # Heartbeat every 5 s keeps the Next.js proxy from closing the idle connection
+                heartbeat_counter += 1
+                if heartbeat_counter % 10 == 0:
+                    yield ": heartbeat\n\n"
+
+        except asyncio.CancelledError:
+            pass
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 
 @app.get("/api/papers/{paper_id}/knowledge-graph/build/progress")

@@ -62,6 +62,7 @@ export default function PaperLoader() {
   const [currentPaper, setCurrentPaper] = useState<PaperDetail | null>(null);
   const [arxivInput, setArxivInput] = useState("");
   const [status, setStatus] = useState<string>("");
+  const [compilingPaperId, setCompilingPaperId] = useState<string | null>(null);
 
   // Tooltip suggestion state
   const [showSuggestionDialog, setShowSuggestionDialog] = useState(false);
@@ -144,19 +145,68 @@ export default function PaperLoader() {
     setStatus("");
   }, [fetchPaper]);
 
+  // SSE connection for compilation progress (must be after loadPaper declaration)
+  useEffect(() => {
+    if (!compilingPaperId) return;
+
+    const paperId = compilingPaperId;
+    setStatus("Starting compilation...");
+
+    // Connect directly to the backend — Next.js rewrites buffer SSE streams,
+    // so we bypass the proxy. Use window.location.hostname so this works for
+    // both localhost and remote machines without requiring NEXT_PUBLIC_API_URL.
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL ||
+      `${window.location.protocol}//${window.location.hostname}:8000`;
+    const eventSource = new EventSource(`${backendUrl}/api/papers/${paperId}/compile/progress`);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'connected') return;
+
+        if (data.stage === 'complete') {
+          eventSource.close();
+          setCompilingPaperId(null);
+          setStatus("");
+          loadPaper(paperId);
+          fetchPapers();
+        } else if (data.stage === 'error') {
+          eventSource.close();
+          setCompilingPaperId(null);
+          setStatus(`Compilation failed: ${data.error || 'Unknown error'}`);
+          setTimeout(() => setStatus(""), 6000);
+        } else if (data.message) {
+          setStatus(data.message);
+        }
+      } catch {
+        // ignore parse errors on heartbeat comments
+      }
+    };
+
+    eventSource.onerror = () => {
+      eventSource.close();
+      setCompilingPaperId(null);
+      setStatus("Lost connection to compilation stream");
+      setTimeout(() => setStatus(""), 6000);
+    };
+
+    return () => eventSource.close();
+  }, [compilingPaperId, loadPaper, fetchPapers]);
+
   // Handle file upload
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    setStatus("Uploading and compiling...");
+    setStatus("Uploading...");
     clearPapersError();
 
     const paper = await uploadPaper(file, true);
     if (paper) {
-      await loadPaper(paper.id);
+      setCompilingPaperId(paper.id); // SSE takes over from here
+    } else {
+      setStatus("");
     }
-    setStatus("");
     event.target.value = "";
   };
 
@@ -169,24 +219,23 @@ export default function PaperLoader() {
 
     const paper = await uploadArxiv(arxivInput.trim(), true);
     if (paper) {
-      await loadPaper(paper.id);
       setArxivInput("");
+      setCompilingPaperId(paper.id); // SSE takes over from here
+    } else {
+      setStatus("");
     }
-    setStatus("");
   };
 
   // Handle recompile
   const handleRecompile = async () => {
     if (!selectedPaperId) return;
 
-    setStatus("Recompiling...");
     clearPapersError();
 
     const paper = await compilePaper(selectedPaperId);
     if (paper) {
-      await loadPaper(paper.id);
+      setCompilingPaperId(paper.id); // SSE takes over from here
     }
-    setStatus("");
   };
 
   // Handle build knowledge graph

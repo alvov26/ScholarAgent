@@ -54,15 +54,6 @@ export interface PaperDetail extends Paper {
   has_knowledge_graph: boolean;
 }
 
-// LaTeX compilation via Docker can take several minutes; use an explicit timeout
-// so the browser's unpredictable default doesn't fire first.
-const COMPILE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
-
-function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
-}
 
 export function usePapers() {
   const [papers, setPapers] = useState<Paper[]>([]);
@@ -109,10 +100,10 @@ export function usePapers() {
       formData.append('file', file);
       formData.append('compile_now', compileNow.toString());
 
-      const response = await fetchWithTimeout(`${API_BASE}/api/papers/upload`, {
+      const response = await fetch(`${API_BASE}/api/papers/upload`, {
         method: 'POST',
         body: formData,
-      }, COMPILE_TIMEOUT_MS);
+      });
 
       if (!response.ok) {
         const err = await response.json().catch(() => ({ detail: 'Upload failed' }));
@@ -141,10 +132,10 @@ export function usePapers() {
       formData.append('url_or_id', urlOrId);
       formData.append('compile_now', compileNow.toString());
 
-      const response = await fetchWithTimeout(`${API_BASE}/api/papers/upload/arxiv`, {
+      const response = await fetch(`${API_BASE}/api/papers/upload/arxiv`, {
         method: 'POST',
         body: formData,
-      }, COMPILE_TIMEOUT_MS);
+      });
 
       if (!response.ok) {
         const err = await response.json().catch(() => ({ detail: 'arXiv fetch failed' }));
@@ -166,9 +157,9 @@ export function usePapers() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetchWithTimeout(`${API_BASE}/api/papers/${paperId}/compile`, {
+      const response = await fetch(`${API_BASE}/api/papers/${paperId}/compile`, {
         method: 'POST',
-      }, COMPILE_TIMEOUT_MS);
+      });
 
       if (!response.ok) {
         const err = await response.json().catch(() => ({ detail: 'Compilation failed' }));
