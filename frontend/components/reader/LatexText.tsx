@@ -7,17 +7,6 @@ interface LatexTextProps {
   className?: string;
 }
 
-declare global {
-  interface Window {
-    MathJax?: {
-      typesetPromise: (elements?: HTMLElement[]) => Promise<void>;
-      startup?: {
-        promise?: Promise<void>;
-      };
-    };
-  }
-}
-
 /**
  * LatexText - Renders text with inline LaTeX math using MathJax.
  *

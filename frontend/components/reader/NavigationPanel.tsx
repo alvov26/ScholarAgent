@@ -6,14 +6,6 @@ import TableOfContents from './TableOfContents';
 import { KnowledgeGraphView } from './KnowledgeGraphView';
 import type { TOCNode } from '@/utils/parseTOC';
 
-declare global {
-  interface Window {
-    MathJax?: {
-      typesetPromise: (elements?: HTMLElement[]) => Promise<void>;
-    };
-  }
-}
-
 interface NavigationPanelProps {
   paperId: string;
   toc: TOCNode[];

@@ -5,18 +5,6 @@ import { FileText } from 'lucide-react';
 import type { TOCNode } from '@/utils/parseTOC';
 import { EmptyState, TreeView } from '@/components/ui';
 
-// Extend Window interface for MathJax
-declare global {
-  interface Window {
-    MathJax?: {
-      typesetPromise: (elements?: HTMLElement[]) => Promise<void>;
-      startup?: {
-        promise?: Promise<void>;
-      };
-    };
-  }
-}
-
 interface TableOfContentsProps {
   nodes: TOCNode[];
   onNavigate?: (id: string) => void;

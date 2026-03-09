@@ -9,14 +9,6 @@ import TooltipList from './TooltipList';
 import GlossaryList from './GlossaryList';
 import TooltipDetailView from './TooltipDetailView';
 
-declare global {
-  interface Window {
-    MathJax?: {
-      typesetPromise: (elements?: HTMLElement[]) => Promise<void>;
-    };
-  }
-}
-
 interface TooltipPanelProps {
   tooltips: Tooltip[];
   toc: TOCNode[];

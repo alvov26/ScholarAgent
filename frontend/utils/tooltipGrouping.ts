@@ -48,7 +48,7 @@ export class SectionGroupingStrategy implements GroupingStrategy {
     const tooltipsBySection = new Map<string, Tooltip[]>();
 
     tooltips.forEach(tooltip => {
-      const sectionInfo = nodeToSection.get(tooltip.dom_node_id);
+      const sectionInfo = tooltip.dom_node_id ? nodeToSection.get(tooltip.dom_node_id) : undefined;
       const sectionId = sectionInfo?.id || 'other';
 
       const existing = tooltipsBySection.get(sectionId);

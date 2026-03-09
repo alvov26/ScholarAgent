@@ -4,14 +4,6 @@ import { useEffect, useRef } from 'react';
 import { X, Trash2, Network } from 'lucide-react';
 import type { Tooltip } from '@/hooks/useTooltips';
 
-declare global {
-  interface Window {
-    MathJax?: {
-      typesetPromise: (elements?: HTMLElement[]) => Promise<void>;
-    };
-  }
-}
-
 interface TooltipDetailViewProps {
   tooltip: Tooltip | null;
   onClose: () => void;
