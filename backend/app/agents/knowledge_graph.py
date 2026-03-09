@@ -493,9 +493,8 @@ def load_paper_data(state: GraphState) -> GraphState:
         # Load pre-extracted data
         all_sections = paper.sections_data or []
 
-        # For testing/development: limit to first N sections to avoid long runtimes
-        # TODO: Remove this limit for production or make it configurable
-        max_sections = int(os.getenv("KG_MAX_SECTIONS", "5"))
+        # Optional: limit to first N sections (0 = process all)
+        max_sections = int(os.getenv("KG_MAX_SECTIONS", "0"))
         if max_sections > 0 and len(all_sections) > max_sections:
             state["sections"] = all_sections[:max_sections]
             print(f"Note: Processing first {max_sections} sections only (set KG_MAX_SECTIONS=0 to process all)")
