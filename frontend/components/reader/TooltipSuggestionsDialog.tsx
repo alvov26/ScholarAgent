@@ -558,7 +558,7 @@ export default function TooltipSuggestionsDialog({
                                     </span>
                                   </div>
                                 }
-                                defaultOpen={true}
+                                defaultExpanded={true}
                               >
                                 <div className="space-y-2 mt-2 ml-6">
                                   {entityGroup.suggestions.map(renderSuggestion)}
