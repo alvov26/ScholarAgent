@@ -6,12 +6,15 @@ Post-processes HTML to inject stable data-id attributes for tooltip anchoring.
 Extracts structured metadata (sections, equations, citations) at compile time.
 """
 
+import contextlib
 import hashlib
+import os
 import re
 import shutil
 import subprocess
 import tarfile
 import tempfile
+import uuid
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -360,8 +363,7 @@ class LaTeXMLCompiler:
         Returns:
             CompilationResult with HTML, sections, equations, citations, and metadata
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
-            work_dir = Path(tmpdir)
+        with self._work_dir() as work_dir:
             source_dir = work_dir / "source"
             output_dir = work_dir / "output"
             source_dir.mkdir()
@@ -414,6 +416,27 @@ class LaTeXMLCompiler:
                 metadata=doc_metadata,
                 latex_source=latex_source,
             )
+
+    @contextlib.contextmanager
+    def _work_dir(self):
+        """
+        Provide a temporary working directory for compilation.
+
+        In Docker (LATEXML_WORK_DIR set): creates a UUID subdir inside the named
+        volume mount so that docker run can reference it by volume name.
+        In dev (no env var): falls back to a regular temp directory.
+        """
+        work_dir_env = os.environ.get("LATEXML_WORK_DIR") if self.use_docker else None
+        if work_dir_env:
+            job_dir = Path(work_dir_env) / uuid.uuid4().hex
+            job_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                yield job_dir
+            finally:
+                shutil.rmtree(job_dir, ignore_errors=True)
+        else:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                yield Path(tmpdir)
 
     def _prepare_source(self, source_path: Path, dest_dir: Path) -> None:
         """Extract archive or copy single file to destination directory."""
@@ -481,19 +504,39 @@ class LaTeXMLCompiler:
         relative_tex = main_tex.relative_to(source_dir)
         output_html = output_dir / "output.html"
 
-        # Run latexmlc (one-step LaTeX -> HTML5)
-        # Note: ar5ivist image has latexmlc as entrypoint, so we just pass args
-        cmd = [
-            "docker", "run", "--rm",
-            "-v", f"{source_dir}:/source:ro",
-            "-v", f"{output_dir}:/output",
-            self.docker_image,
-            f"/source/{relative_tex}",
-            "--dest=/output/output.html",
-            "--format=html5",
-            "--pmml",  # Presentation MathML
-            "--cmml",  # Content MathML
-        ]
+        volume_name = os.environ.get("LATEXML_VOLUME_NAME")
+        work_dir_env = os.environ.get("LATEXML_WORK_DIR")
+
+        if volume_name and work_dir_env:
+            # Named volume mode: backend and ar5ivist share a Docker named volume.
+            # Translate container-local paths to volume-relative paths so the
+            # ar5ivist container (launched via the host socket) can resolve them.
+            vol_root = Path(work_dir_env)
+            source_in_vol = f"/workdir/{source_dir.relative_to(vol_root)}"
+            output_in_vol = f"/workdir/{output_dir.relative_to(vol_root)}"
+            cmd = [
+                "docker", "run", "--rm",
+                "-v", f"{volume_name}:/workdir",
+                self.docker_image,
+                f"{source_in_vol}/{relative_tex}",
+                f"--dest={output_in_vol}/output.html",
+                "--format=html5",
+                "--pmml",  # Presentation MathML
+                "--cmml",  # Content MathML
+            ]
+        else:
+            # Bind mount mode (local dev, running directly on host)
+            cmd = [
+                "docker", "run", "--rm",
+                "-v", f"{source_dir}:/source:ro",
+                "-v", f"{output_dir}:/output",
+                self.docker_image,
+                f"/source/{relative_tex}",
+                "--dest=/output/output.html",
+                "--format=html5",
+                "--pmml",  # Presentation MathML
+                "--cmml",  # Content MathML
+            ]
 
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         if result.returncode != 0:

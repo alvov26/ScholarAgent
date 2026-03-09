@@ -16,6 +16,11 @@ services:
       timeout: 5s
       retries: 5
 
+  latexml:
+    image: latexml/ar5ivist
+    entrypoint: ["true"]  # exits immediately; service exists only to pre-pull the image
+    restart: "no"
+
   backend:
     image: mcseem1337/scholaragent-backend:latest
     container_name: scholaragent-backend
@@ -24,8 +29,11 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       KG_MAX_SECTIONS: ${KG_MAX_SECTIONS:-0}
       SCHOLAR_DEBUG: ${SCHOLAR_DEBUG:-false}
+      LATEXML_WORK_DIR: /app/latexml_work
+      LATEXML_VOLUME_NAME: scholaragent_latexml_workdir
     volumes:
       - ./storage:/app/storage
+      - latexml_workdir:/app/latexml_work
       - /var/run/docker.sock:/var/run/docker.sock  # For LaTeXML container access
     ports:
       - "8000:8000"
@@ -48,3 +56,5 @@ services:
 
 volumes:
   postgres_data:
+  latexml_workdir:
+    name: scholaragent_latexml_workdir  # fixed name regardless of project directory

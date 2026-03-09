@@ -16,6 +16,9 @@ FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
+# Copy docker CLI binary (needed to invoke latexml/ar5ivist via the host socket)
+COPY --from=docker:27-cli /usr/local/bin/docker /usr/local/bin/docker
+
 # Copy installed dependencies from builder
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
