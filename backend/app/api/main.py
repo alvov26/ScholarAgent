@@ -23,11 +23,17 @@ from backend.app.compiler.latexml_compiler import compile_latex_to_html, Compila
 app = FastAPI(title="Scholar Agent API")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
-    allow_credentials=True,
+    # Allow any HTTP/HTTPS origin so direct backend SSE connections work when the
+    # frontend is accessed via LAN IP, hostname, or any non-localhost address.
+    allow_origin_regex=r"https?://.*",
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
 
 # Storage directories (absolute paths relative to project root)
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent  # backend/app/api/main.py -> project root

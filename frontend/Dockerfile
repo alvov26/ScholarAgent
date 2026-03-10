@@ -12,6 +12,9 @@ RUN npm ci
 COPY . .
 
 # Build Next.js application
+# BACKEND_URL is baked into the route manifest at build time (Next.js rewrites)
+ARG BACKEND_URL=http://backend:8000
+ENV BACKEND_URL=${BACKEND_URL}
 RUN npm run build
 
 # Production stage
