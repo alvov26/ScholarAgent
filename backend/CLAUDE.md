@@ -141,9 +141,13 @@ The `separator=' '` is essential - it ensures offsets match.
 DATABASE_URL=postgresql://user:pass@localhost/db
 ANTHROPIC_API_KEY=sk-ant-...
 
-# Optional
+# Optional - Knowledge Graph
 KG_MAX_SECTIONS=5      # Limit sections (0 = all)
-SCHOLAR_DEBUG=true     # Verbose logging
+KG_DEBUG=1             # Enable KG extraction debug logs
+
+# Optional - Debug Flags (set to "true" to enable)
+HTML_INJECTION_DEBUG=true      # Debug HTML span injection agent
+TOOLTIP_AGENT_DEBUG=true       # Debug tooltip suggestion agent
 ```
 
 ## Database Migrations

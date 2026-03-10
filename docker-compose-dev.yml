@@ -25,7 +25,9 @@ services:
       DATABASE_URL: postgresql://scholaragent:scholaragent@postgres:5432/scholaragent
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       KG_MAX_SECTIONS: ${KG_MAX_SECTIONS:-0}
-      SCHOLAR_DEBUG: ${SCHOLAR_DEBUG:-false}
+      KG_DEBUG: ${KG_DEBUG:-}
+      HTML_INJECTION_DEBUG: ${HTML_INJECTION_DEBUG:-false}
+      TOOLTIP_AGENT_DEBUG: ${TOOLTIP_AGENT_DEBUG:-false}
     volumes:
       - ./storage:/app/storage
       - /var/run/docker.sock:/var/run/docker.sock  # For LaTeXML container access

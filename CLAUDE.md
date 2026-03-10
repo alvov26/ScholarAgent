@@ -110,9 +110,13 @@ arXiv .tar.gz → LaTeXML (Docker) → HTML5 + MathML → PostgreSQL
 DATABASE_URL=postgresql://scholaragent:scholaragent@localhost/scholaragent
 ANTHROPIC_API_KEY=sk-ant-...
 
-# Optional
+# Optional - Knowledge Graph
 KG_MAX_SECTIONS=5      # Limit sections for KG extraction (0 = all)
-SCHOLAR_DEBUG=true     # Verbose logging
+KG_DEBUG=1             # Enable KG extraction debug logs
+
+# Optional - Debug Flags (set to "true" to enable)
+HTML_INJECTION_DEBUG=true      # Debug HTML span injection agent
+TOOLTIP_AGENT_DEBUG=true       # Debug tooltip suggestion agent
 ```
 
 ## Database
