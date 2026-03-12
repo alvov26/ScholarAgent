@@ -129,7 +129,6 @@ OPENROUTER_API_KEY=your-openrouter-key
 ```
 
 Then choose the provider and, for OpenRouter, the models in the app's `AI Settings` dialog.
-Anthropic keeps the server-side defaults; optionally override its HTML injection model with `HTML_INJECTION_MODEL`.
 
 ### 5. Database Migrations
 

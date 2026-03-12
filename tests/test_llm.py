@@ -52,7 +52,7 @@ def test_anthropic_html_injection_model_honors_env_override(monkeypatch):
     capabilities = llm.get_ai_capabilities()
     assert (
         capabilities["providers"]["anthropic"]["fixed_models"][llm.TASK_HTML_INJECTION]["id"]
-        == "claude-sonnet-4-5-20250929"
+        == llm.DEFAULT_ANTHROPIC_HTML_INJECTION_MODEL
     )
 
 

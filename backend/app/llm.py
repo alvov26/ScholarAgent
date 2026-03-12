@@ -49,20 +49,11 @@ def _get_anthropic_html_injection_model() -> str:
 
 
 def get_anthropic_task_models() -> dict[str, dict[str, str]]:
-    """Return Anthropic task models, including the HTML injection override."""
-    html_model = _get_anthropic_html_injection_model()
-    html_label = (
-        ANTHROPIC_TASK_MODELS[TASK_HTML_INJECTION]["label"]
-        if html_model == DEFAULT_ANTHROPIC_HTML_INJECTION_MODEL
-        else "Configured via HTML_INJECTION_MODEL"
-    )
+    """Return the public Anthropic task model map."""
     return {
         TASK_KNOWLEDGE_GRAPH: ANTHROPIC_TASK_MODELS[TASK_KNOWLEDGE_GRAPH],
         TASK_TOOLTIP_FILTER: ANTHROPIC_TASK_MODELS[TASK_TOOLTIP_FILTER],
-        TASK_HTML_INJECTION: {
-            "id": html_model,
-            "label": html_label,
-        },
+        TASK_HTML_INJECTION: ANTHROPIC_TASK_MODELS[TASK_HTML_INJECTION],
     }
 
 
@@ -182,7 +173,9 @@ def resolve_chat_settings(
     provider = get_llm_provider(config)
 
     if provider == "anthropic":
-        return provider, get_anthropic_task_models()[normalized_task]["id"]
+        if normalized_task == TASK_HTML_INJECTION:
+            return provider, _get_anthropic_html_injection_model()
+        return provider, ANTHROPIC_TASK_MODELS[normalized_task]["id"]
 
     return provider, _get_openrouter_model_for_task(normalized_task, config)
 
