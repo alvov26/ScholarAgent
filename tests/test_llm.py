@@ -104,10 +104,8 @@ def test_validate_ai_config_requires_openrouter_model_selection(monkeypatch):
 
 
 def test_create_chat_model_uses_openrouter(monkeypatch):
-    """OpenRouter client picks up task model and attribution fields."""
+    """OpenRouter client picks up the task model."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setenv("OPENROUTER_APP_URL", "https://scholaragent.dev")
-    monkeypatch.setenv("OPENROUTER_APP_TITLE", "Scholar Agent")
 
     def fake_import(name: str):
         assert name == "langchain_openrouter"
@@ -128,8 +126,6 @@ def test_create_chat_model_uses_openrouter(monkeypatch):
     assert model.kwargs == {
         "model": "anthropic/claude-3.7-sonnet",
         "max_tokens": 1024,
-        "app_url": "https://scholaragent.dev",
-        "app_title": "Scholar Agent",
     }
 
 

@@ -212,8 +212,6 @@ Create a `.env` file in the same directory as `docker-compose.yml`:
 |----------|----------|---------|-------------|
 | `ANTHROPIC_API_KEY` | Anthropic: **Yes** | - | Your Anthropic API key from [console.anthropic.com](https://console.anthropic.com/) |
 | `OPENROUTER_API_KEY` | OpenRouter: **Yes** | - | Your OpenRouter API key |
-| `OPENROUTER_APP_URL` | No | - | Optional OpenRouter attribution URL |
-| `OPENROUTER_APP_TITLE` | No | - | Optional OpenRouter application title |
 | `HTML_INJECTION_MODEL` | No | Anthropic haiku | Anthropic-only server-side override model for HTML span injection |
 | `DATABASE_URL` | No | Auto-configured | PostgreSQL connection string (only needed for source setup) |
 | `KG_MAX_SECTIONS` | No | `0` | Limit sections processed in knowledge graph (0 = all sections) |

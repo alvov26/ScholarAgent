@@ -245,14 +245,6 @@ def create_chat_model(
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
 
-    app_url = os.getenv("OPENROUTER_APP_URL", "").strip()
-    if app_url:
-        kwargs["app_url"] = app_url
-
-    app_title = os.getenv("OPENROUTER_APP_TITLE", "").strip()
-    if app_title:
-        kwargs["app_title"] = app_title
-
     return module.ChatOpenRouter(**kwargs)
 
 
